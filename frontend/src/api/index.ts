@@ -1,0 +1,275 @@
+/**
+ * 后端 API 封装（含 auth / user / records / change / reports / admin）
+ *
+ * 通过 Vite 代理，所有 /api/* 请求会被反代到 http://127.0.0.1:8000
+ * 拦截器自动附加 Authorization 头，401 时尝试用 refresh_token 刷新一次
+ */
+import axios, { AxiosError, AxiosRequestConfig } from 'axios'
+import { ElMessage } from 'element-plus'
+
+// ==================== HTTP 实例 ====================
+const http = axios.create({ baseURL: '/api', timeout: 60_000 })
+
+// ==================== 拦截器 ====================
+let isRefreshing = false
+let pendingQueue: Array<(t: string | null) => void> = []
+
+http.interceptors.request.use((cfg) => {
+  const t = localStorage.getItem('access_token')
+  if (t) cfg.headers.Authorization = `Bearer ${t}`
+  return cfg
+})
+
+http.interceptors.response.use(
+  (r) => r,
+  async (err: AxiosError) => {
+    const orig = err.config as AxiosRequestConfig & { _retry?: boolean }
+    if (err.response?.status === 401 && !orig._retry) {
+      orig._retry = true
+      const refresh = localStorage.getItem('refresh_token')
+      if (!refresh) {
+        // 无 refresh_token 直接放行让上层 401
+        return Promise.reject(err)
+      }
+      if (isRefreshing) {
+        // 已在刷新中，排队
+        return new Promise<string | null>((resolve) => {
+          pendingQueue.push(resolve)
+        }).then((newToken) => {
+          if (newToken) {
+            orig.headers = { ...(orig.headers || {}), Authorization: `Bearer ${newToken}` }
+          }
+          return http(orig)
+        })
+      }
+      isRefreshing = true
+      try {
+        const r = await axios.post('/api/auth/refresh', { refresh_token: refresh })
+        const newAccess = r.data.access_token
+        localStorage.setItem('access_token', newAccess)
+        pendingQueue.forEach((cb) => cb(newAccess))
+        pendingQueue = []
+        orig.headers = { ...(orig.headers || {}), Authorization: `Bearer ${newAccess}` }
+        return http(orig)
+      } catch (e) {
+        pendingQueue.forEach((cb) => cb(null))
+        pendingQueue = []
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        ElMessage.error('登录已过期，请重新登录')
+        return Promise.reject(e)
+      } finally {
+        isRefreshing = false
+      }
+    }
+    return Promise.reject(err)
+  },
+)
+
+// ==================== 类型定义 ====================
+export interface TopItem { label: string; score: number }
+export interface ClassifyResult { top1: TopItem; top5: TopItem[]; mock?: boolean; record_id?: number }
+export interface HeatmapResult { png_base64: string; mock?: boolean }
+export interface StatsResult {
+  window_hours: number; total: number
+  counts: Record<string, number>; server_uptime_s: number
+}
+
+export interface UserOut {
+  id: number; username: string; email: string; role: 'user' | 'admin'
+  is_active: boolean; created_at: string
+}
+
+export interface TokenOut { access_token: string; refresh_token: string; token_type: string; user: UserOut }
+
+export interface RecordOut {
+  id: number; image_path: string
+  top1_label: string; top1_score: number
+  top5_json: string; created_at: string
+  user_id?: number; username?: string
+}
+
+export interface ChangeResult {
+  top1_a: TopItem; top1_b: TopItem
+  top5_a: TopItem[]; top5_b: TopItem[]
+  changes: Array<{ type: 'top1_changed' | 'label_lost' | 'label_gained'; label: string; score_a?: number; score_b?: number }>
+  summary: string
+  job_id?: number
+}
+
+export type ReportKind = 'pdf' | 'excel' | 'csv'
+export interface ReportJob {
+  id: number; kind: ReportKind
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  output_path?: string | null
+  error?: string | null
+  time_range_start?: string | null
+  time_range_end?: string | null
+  class_filter?: string | null
+  created_at: string; finished_at?: string | null
+}
+
+export interface TrainingJob {
+  id: number; stage: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped'
+  pid?: number | null
+  metrics_json?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  error?: string | null
+  log_tail?: string
+  created_at: string
+}
+
+// ==================== 业务 API ====================
+// ---- 分类/统计/热力图 ----
+export async function classify(image: File): Promise<ClassifyResult> {
+  const fd = new FormData()
+  fd.append('image', image)
+  const r = await http.post<ClassifyResult>('/classify', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return r.data
+}
+
+export async function heatmap(image: File, targetClass = 0): Promise<HeatmapResult> {
+  const fd = new FormData()
+  fd.append('image', image)
+  fd.append('target_class', String(targetClass))
+  const r = await http.post<HeatmapResult>('/heatmap', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return r.data
+}
+
+export async function getStats(): Promise<StatsResult> {
+  const r = await http.get<StatsResult>('/stats')
+  return r.data
+}
+
+export async function recordStat(label: string, score: number): Promise<void> {
+  await http.post('/stats/record', { label, score, ts: Date.now() / 1000 })
+}
+
+// ---- Auth ----
+export async function register(payload: { username: string; email: string; password: string }): Promise<TokenOut> {
+  const r = await http.post<TokenOut>('/auth/register', payload)
+  return r.data
+}
+export async function login(payload: { username: string; password: string }): Promise<TokenOut> {
+  const r = await http.post<TokenOut>('/auth/login', payload)
+  return r.data
+}
+export async function logout(): Promise<void> {
+  await http.post('/auth/logout')
+}
+export async function fetchMe(): Promise<UserOut> {
+  const r = await http.get<UserOut>('/auth/me')
+  return r.data
+}
+
+// ---- Records ----
+export async function listMyRecords(page = 1, pageSize = 20): Promise<{ items: RecordOut[]; total: number }> {
+  const r = await http.get<{ items: RecordOut[]; total: number }>('/records', {
+    params: { page, page_size: pageSize },
+  })
+  return r.data
+}
+export async function getRecord(id: number): Promise<RecordOut> {
+  const r = await http.get<RecordOut>(`/records/${id}`)
+  return r.data
+}
+
+// ---- Change ----
+export async function changeDetect(imageA: File, imageB: File): Promise<ChangeResult> {
+  const fd = new FormData()
+  fd.append('image_a', imageA)
+  fd.append('image_b', imageB)
+  const r = await http.post<ChangeResult>('/change', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return r.data
+}
+
+// ---- Reports ----
+export async function createReport(payload: {
+  kind: ReportKind
+  time_range_start?: string
+  time_range_end?: string
+  class_filter?: string[]
+}): Promise<ReportJob> {
+  const r = await http.post<ReportJob>('/reports/export', payload)
+  return r.data
+}
+export async function listMyReports(page = 1, pageSize = 20): Promise<{ items: ReportJob[]; total: number }> {
+  const r = await http.get<{ items: ReportJob[]; total: number }>('/reports', {
+    params: { page, page_size: pageSize },
+  })
+  return r.data
+}
+export async function getReport(id: number): Promise<ReportJob> {
+  const r = await http.get<ReportJob>(`/reports/${id}`)
+  return r.data
+}
+export function reportDownloadUrl(id: number): string {
+  return `/api/reports/${id}/download`
+}
+
+// ---- Admin: Users ----
+export async function adminListUsers(): Promise<UserOut[]> {
+  const r = await http.get<UserOut[]>('/admin/users')
+  return r.data
+}
+export async function adminUpdateUser(id: number, patch: Partial<Pick<UserOut, 'role' | 'is_active'>>): Promise<UserOut> {
+  const r = await http.patch<UserOut>(`/admin/users/${id}`, patch)
+  return r.data
+}
+export async function adminDeleteUser(id: number): Promise<void> {
+  await http.delete(`/admin/users/${id}`)
+}
+
+// ---- Admin: Records ----
+export async function adminListRecords(userId?: number, page = 1, pageSize = 50): Promise<{ items: RecordOut[]; total: number }> {
+  const r = await http.get<{ items: RecordOut[]; total: number }>('/admin/records', {
+    params: { user_id: userId, page, page_size: pageSize },
+  })
+  return r.data
+}
+
+// ---- Admin: Training ----
+export async function adminListTraining(page = 1, pageSize = 20): Promise<{ items: TrainingJob[]; total: number }> {
+  const r = await http.get<{ items: TrainingJob[]; total: number }>('/admin/training', {
+    params: { page, page_size: pageSize },
+  })
+  return r.data
+}
+export async function adminGetTraining(id: number): Promise<TrainingJob> {
+  const r = await http.get<TrainingJob>(`/admin/training/${id}`)
+  return r.data
+}
+export async function adminStartTraining(payload: {
+  stage: number; epochs: number; batch_size: number; lr: number
+  resume_from?: string; weights?: string
+}): Promise<TrainingJob> {
+  const r = await http.post<TrainingJob>('/admin/training/start', payload)
+  return r.data
+}
+export async function adminStopTraining(id: number): Promise<void> {
+  await http.post(`/admin/training/${id}/stop`)
+}
+
+// ---- Admin: Converts ----
+export async function adminStartConvert(payload: {
+  weights: string; output?: string; image_size?: number; opset?: number
+}): Promise<TrainingJob> {
+  const r = await http.post<TrainingJob>('/admin/converts/start', payload)
+  return r.data
+}
+
+// ---- Admin: All Reports ----
+export async function adminListAllReports(page = 1, pageSize = 50): Promise<{ items: ReportJob[]; total: number }> {
+  const r = await http.get<{ items: ReportJob[]; total: number }>('/admin/reports', {
+    params: { page, page_size: pageSize },
+  })
+  return r.data
+}

@@ -1,0 +1,33 @@
+# ==================== 核心训练栈 ====================
+# PyTorch 与 timm 模型库（EfficientNetV2-M）
+torch>=2.1.0
+torchvision>=0.16.0
+timm>=0.9.12
+
+# ==================== 数据处理与可视化 ====================
+numpy>=1.24.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+matplotlib>=3.7.0
+
+# ==================== 后端 API ====================
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# ==================== 数据库 & 鉴权（Phase 1 引入） ====================
+sqlalchemy>=2.0.0
+pydantic[email]>=2.5.0
+pydantic-settings>=2.1.0
+bcrypt==4.0.1
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+email-validator>=2.0
+
+# ==================== 模型转换（按需） ====================
+# 实际跑 ONNX / TF / TF.js 转换时再装，骨架阶段不强制
+# onnx>=1.15.0
+# onnxruntime>=1.16.0
+# onnx2tf>=1.17.0
+# tensorflow>=2.14.0
+# tensorflowjs>=4.10.0

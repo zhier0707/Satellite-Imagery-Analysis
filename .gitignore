@@ -1,0 +1,126 @@
+# ============================================================
+# Local dev environment (Trae IDE / agent skills / code graph)
+# ============================================================
+.agents/
+.codegraph/
+.trae/
+skills-lock.json
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================================
+# Virtual envs
+# ============================================================
+.venv/
+venv/
+env/
+ENV/
+
+# ============================================================
+# Datasets (large; download via scripts/download_eurosat.py)
+# ============================================================
+data/eurosat/
+data/eurosat.zip
+data/raw/
+data/processed/
+*.tar.gz
+*.zip
+
+# ============================================================
+# Runtime data: uploads, secrets, generated outputs
+# ============================================================
+data/uploads/
+data/reports/
+data/logs/
+data/.jwt_secret
+backend/data/*.db
+backend/data/*.sqlite
+*.sqlite
+*.db
+backend/uploads/
+
+# ============================================================
+# Model weights (large; download from Releases if needed)
+# ============================================================
+models/checkpoints/
+models/web_model/
+*.pt
+*.pth
+*.onnx
+*.h5
+*.pb
+*.tflite
+
+# ============================================================
+# Training logs and run artifacts
+# ============================================================
+runs/
+wandb/
+mlruns/
+backend/logs/
+backend/training_jobs/*/logs/
+reports/*.log
+reports/*.png
+reports/phase*_test_output.txt
+backend/reports/output/
+*.pdf
+*.xlsx
+*.csv
+
+# ============================================================
+# Frontend
+# ============================================================
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.nuxt/
+frontend/coverage/
+frontend/.cache/
+frontend/*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+frontend/tsconfig.node.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
+
+# ============================================================
+# Editors and OS
+# ============================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# Env and secrets
+# ============================================================
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+*.pem
+*.key
+
+# ============================================================
+# OS-level cruft
+# ============================================================
+*.bak
+*.orig
+*.rej
+*~
