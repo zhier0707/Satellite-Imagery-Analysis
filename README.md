@@ -261,6 +261,31 @@ $PY scripts/convert_to_onnx.py --weights models/checkpoints/best.pt \
 
 ---
 
+## 在 Kaggle 训练（免费 GPU）
+
+```powershell
+# 1. 本地上传数据集到 Kaggle Datasets（一次性，87 MB）
+$env:PY = "F:\anaconda\python.exe"
+& $env:PY scripts/upload_to_kaggle.py --dry-run     # 先看预览
+# 认证: 把 kaggle.json 放到 ~/.kaggle/kaggle.json（kaggle.com/settings → API 下载）
+& $env:PY scripts/upload_to_kaggle.py --yes
+```
+
+```python
+# 2. Kaggle Notebook → New Notebook
+#    Settings → Accelerator = GPU T4 x2
+#    Add Data → 搜 "eurosat-10class"
+#    把整个 scripts/kaggle_train.py 粘进一个 cell
+#    改顶部 CONFIG 段 → Run All
+```
+
+训练完成后从 `/kaggle/working/{tag}_checkpoints.zip` 下载，回到本地：
+```
+e:/truth-视觉实践/models/checkpoints/best.pt
+```
+
+---
+
 ## 类别映射（EuroSAT 10 类）
 
 | Index | Label | 中文 |
