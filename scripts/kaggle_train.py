@@ -74,11 +74,58 @@ print("[OK] deps ready")
 import shutil
 import torch
 
-assert os.path.isdir(DATASET_ROOT), (
-    f"数据未找到: {DATASET_ROOT}\n"
-    f"请检查: (1) Add Data 是否成功; (2) DATASET_ROOT 路径是否对\n"
-    f"  提示: ls /kaggle/input/ 看实际 dataset slug"
-)
+
+def auto_detect_data_root(preferred: str | None = None) -> str:
+    """
+    智能探测 Kaggle 上的 EuroSAT 数据集根目录。
+
+    优先级：
+      1. 用户在 CONFIG 段填的 DATASET_ROOT（且该路径存在 10 个类别子目录）
+      2. /kaggle/input/ 下名字含 'eurosat' 的 dataset
+      3. /kaggle/input/ 下任何含 10 个子目录且子目录里有 jpg 的路径
+    """
+    if preferred and os.path.isdir(preferred):
+        classes = [d for d in os.listdir(preferred) if os.path.isdir(os.path.join(preferred, d))]
+        if len(classes) >= 2:  # 至少 2 个类别算通过
+            print(f"[detect] using preferred: {preferred} ({len(classes)} classes)")
+            return preferred
+
+    candidates = []
+    for entry in sorted(os.listdir("/kaggle/input")):
+        full = f"/kaggle/input/{entry}"
+        if not os.path.isdir(full):
+            continue
+        # 找含 10 个类别子目录的路径
+        for root, dirs, _files in os.walk(full):
+            jpg_dirs = [d for d in dirs if os.path.isdir(os.path.join(root, d))]
+            jpg_count = sum(1 for _f in os.listdir(root) if _f.lower().endswith((".jpg", ".jpeg")))
+            if 5 <= len(jpg_dirs) <= 20 and jpg_count < 5:
+                # 这一级有 ~10 个子目录,几乎就是 eurosat 根
+                candidates.append((entry, root, len(jpg_dirs)))
+                break
+        # 也考虑直接是根
+        subdirs = [d for d in os.listdir(full) if os.path.isdir(os.path.join(full, d))]
+        if 5 <= len(subdirs) <= 20:
+            # 检查是否像 eurosat
+            sample = subdirs[0]
+            sample_files = os.listdir(os.path.join(full, sample))
+            n_jpg = sum(1 for f in sample_files if f.lower().endswith((".jpg", ".jpeg")))
+            if n_jpg > 100:
+                candidates.append((entry, full, len(subdirs)))
+
+    if not candidates:
+        raise SystemExit(
+            f"[x] 无法自动探测 EuroSAT 路径, 请在 CONFIG 段显式填 DATASET_ROOT\n"
+            f"   提示: !ls /kaggle/input/  看看实际 dataset 名字"
+        )
+    # 优先选名字含 'eurosat' 的
+    candidates.sort(key=lambda c: ("eurosat" not in c[0].lower(), c[0]))
+    chosen = candidates[0]
+    print(f"[detect] auto-resolved: {chosen[1]} (dataset={chosen[0]}, {chosen[2]} classes)")
+    return chosen[1]
+
+
+DATASET_ROOT = auto_detect_data_root(DATASET_ROOT)
 classes = sorted(os.listdir(DATASET_ROOT))
 assert len(classes) == 10, f"期望 10 个类别, 实际 {len(classes)}: {classes}"
 n_imgs = sum(
