@@ -54,7 +54,9 @@ data/processed/
 data/uploads/
 data/reports/
 data/logs/
+data/test_*/
 data/.jwt_secret
+dataset-metadata.json
 backend/data/*.db
 backend/data/*.sqlite
 *.sqlite
@@ -133,3 +135,4 @@ frontend/.env
 *.orig
 *.rej
 *~
+scripts/_*.py
