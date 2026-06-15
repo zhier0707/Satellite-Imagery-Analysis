@@ -266,6 +266,85 @@ export async function adminStartConvert(payload: {
   return r.data
 }
 
+// ==================== LBS (高德代理) ====================
+// ---- 地理编码 ----
+export interface GeocodeResult {
+  formatted_address: string
+  location: [number, number]
+  level?: string
+  adcode?: string
+}
+export interface RegeocodeResult {
+  formatted_address: string
+  addressComponent: {
+    province?: string
+    city?: string
+    district?: string
+    township?: string
+    street?: string
+    streetNumber?: string
+  }
+  pois?: Array<{ id: string; name: string; type?: string; location: [number, number] }>
+}
+export async function geocode(address: string): Promise<GeocodeResult> {
+  const r = await http.get<GeocodeResult>('/lbs/geocode', { params: { address } })
+  return r.data
+}
+export async function regeocode(lng: number, lat: number): Promise<RegeocodeResult> {
+  const r = await http.get<RegeocodeResult>('/lbs/regeocode', { params: { lng, lat } })
+  return r.data
+}
+
+// ---- POI 搜索 ----
+export interface POI {
+  id: string
+  name: string
+  type?: string
+  address?: string
+  location: [number, number]
+  distance?: number
+  adcode?: string
+}
+export async function poiTextSearch(params: {
+  keywords: string
+  city?: string
+  offset?: number
+}): Promise<POI[]> {
+  const r = await http.get<POI[]>('/lbs/place/text', { params })
+  return r.data
+}
+export async function poiAroundSearch(params: {
+  lng: number
+  lat: number
+  radius?: number
+  types?: string
+}): Promise<POI[]> {
+  const r = await http.get<POI[]>('/lbs/place/around', { params })
+  return r.data
+}
+
+// ---- 静态图 / 分享 ----
+export async function staticMapUrl(params: {
+  lng: number
+  lat: number
+  zoom?: number
+  size?: string
+}): Promise<{ url: string }> {
+  const r = await http.get<{ url: string }>('/lbs/staticmap', { params })
+  return r.data
+}
+export interface ShareMapResult {
+  url: string
+  qrcode_base64: string
+}
+export async function shareMap(payload: {
+  title: string
+  markers: Array<{ lng: number; lat: number; name?: string }>
+}): Promise<ShareMapResult> {
+  const r = await http.post<ShareMapResult>('/lbs/share', payload)
+  return r.data
+}
+
 // ---- Admin: All Reports ----
 export async function adminListAllReports(page = 1, pageSize = 50): Promise<{ items: ReportJob[]; total: number }> {
   const r = await http.get<{ items: ReportJob[]; total: number }>('/admin/reports', {

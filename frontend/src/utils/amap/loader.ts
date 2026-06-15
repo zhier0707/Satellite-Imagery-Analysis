@@ -37,27 +37,27 @@ export function loadAMap(opts: LoadAMapOptions = {}): Promise<unknown> {
   if (cache && !opts.force) return cache
 
   cache = new Promise((resolve, reject) => {
-    const AMapLoader = (window as any).AMapLoader
+    const AMapLoader = (window as unknown as { AMapLoader?: unknown }).AMapLoader
     if (AMapLoader) {
-      return callLoader(AMapLoader).then(resolve, reject)
+      return callLoader(AMapLoader as AMapLoaderLike).then(resolve, reject)
     }
     const script = document.createElement('script')
     script.src = LOADER_SRC
     script.async = true
     script.onload = () => {
-      const loader = (window as any).AMapLoader
+      const loader = (window as unknown as { AMapLoader?: unknown }).AMapLoader
       if (!loader) {
         reject(new Error('AMapLoader 未在 window 上暴露'))
         return
       }
-      callLoader(loader).then(resolve, reject)
+      callLoader(loader as AMapLoaderLike).then(resolve, reject)
     }
     script.onerror = () => reject(new Error('高德地图 loader.js 加载失败'))
     document.head.appendChild(script)
   })
   return cache
 
-  function callLoader(loader: any) {
+  function callLoader(loader: AMapLoaderLike) {
     return loader.load({
       key,
       version: '2.0',
@@ -69,4 +69,10 @@ export function loadAMap(opts: LoadAMapOptions = {}): Promise<unknown> {
 /** 检查 Key 是否已配置(用于 UI 上的友好提示) */
 export function isAMapConfigured(): boolean {
   return Boolean(import.meta.env.VITE_AMAP_JS_KEY)
+}
+
+// ==================== 内部类型 ====================
+// AMapLoader 全局对象的最小可用契约(完整声明见 types.d.ts)
+interface AMapLoaderLike {
+  load: (cfg: { key: string; version: string; plugins: string[] }) => Promise<unknown>
 }

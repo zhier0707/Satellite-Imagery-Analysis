@@ -1,0 +1,8 @@
+{
+  "url": "https://amap.mock/staticmap?location=116.397428,39.90923&zoom=14&size=400*400&markers=mid,,A:116.397428,39.90923",
+  "zoom": 14,
+  "size": "400*400",
+  "lng": 116.397428,
+  "lat": 39.90923,
+  "note": "Mock 占位 URL；配置 AMAP_WEBSERVICE_KEY 后将返回真实高德静态图。"
+}

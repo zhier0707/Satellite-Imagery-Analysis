@@ -1,0 +1,226 @@
+/**
+ * Element Plus 主色与组件覆写
+ * ====================
+ *
+ * 设计目标:
+ *   - 整体主色: 黑 (#1A1A1A) —— 取消 Element Plus 默认蓝
+ *   - 强调按钮: 蓝 (#2563EB) —— 学术海报用蓝
+ *   - 不再出现默认 #409EFF 蓝色按钮(除非作为非主操作)
+ *   - 衬线字与全局 token 联动
+ *
+ * 参考: Element Plus 主题变量前缀 --el-*
+ */
+
+/* ==================== 基础色覆写 ==================== */
+:root {
+  /* 主色系: 黑 */
+  --el-color-primary: #1A1A1A;
+  --el-color-primary-light-3: #4A4A4A;
+  --el-color-primary-light-5: #7A7A7A;
+  --el-color-primary-light-7: #A8A8A8;
+  --el-color-primary-light-8: #C4C4C4;
+  --el-color-primary-light-9: #E4E4E4;
+  --el-color-primary-dark-2: #000000;
+
+  /* 文字与边框 */
+  --el-text-color-primary: #1A1A1A;
+  --el-text-color-regular: #1A1A1A;
+  --el-text-color-secondary: #525252;
+  --el-text-color-placeholder: #A3A3A3;
+  --el-text-color-disabled: #A3A3A3;
+  --el-border-color: #E5E7EB;
+  --el-border-color-light: #E5E7EB;
+  --el-border-color-lighter: #F0F1F3;
+  --el-border-color-extra-light: #F7F8FA;
+  --el-border-color-dark: #D4D4D8;
+  --el-border-color-darker: #A3A3A3;
+
+  /* 背景 */
+  --el-bg-color: #FFFFFF;
+  --el-bg-color-page: #FAFAFA;
+  --el-bg-color-overlay: #FFFFFF;
+
+  /* 强调色 (蓝) 单独保留一组变量,供主操作按钮引用 */
+  --app-accent: #2563EB;
+  --app-accent-soft: #DBE7FF;
+  --app-accent-hover: #1D4FD8;
+  --app-danger: #DC2626;
+  --app-danger-soft: #FEE2E2;
+  --app-success: #16A34A;
+  --app-warning: #D97706;
+}
+
+/* ==================== Button 主操作 ====================
+ * el-button 内部用 --el-color-primary 黑,显式主操作仍希望呈现学术蓝。
+ * 通过给 .el-button.is-accent / .el-button--accent 提供蓝色样式,
+ * 兼顾"主操作 = 蓝色"的设计约束,避免与 Element Plus 的危险/默认类型冲突。
+ */
+.el-button--accent,
+.el-button.is-accent {
+  --el-button-bg-color: var(--app-accent);
+  --el-button-border-color: var(--app-accent);
+  --el-button-hover-bg-color: var(--app-accent-hover);
+  --el-button-hover-border-color: var(--app-accent-hover);
+  --el-button-active-bg-color: var(--app-accent-hover);
+  --el-button-active-border-color: var(--app-accent-hover);
+  --el-button-text-color: #FFFFFF;
+}
+.el-button--accent:hover,
+.el-button.is-accent:hover {
+  --el-button-bg-color: var(--app-accent-hover);
+  --el-button-border-color: var(--app-accent-hover);
+}
+
+/* ==================== Tag / 链接 ====================
+ * .el-tag--accent 用于 type="accent" (旧用法,已不推荐,保留兼容)
+ * .el-tag.is-accent 是推荐写法 —— TypeScript 不必为 "accent" 这个非标 type 单独扩展联合类型
+ * 在 <el-tag type="primary" class="is-accent"> 模式下,以 class 形式触发蓝强调色
+ */
+.el-tag.el-tag--accent,
+.el-tag.is-accent {
+  --el-tag-bg-color: var(--app-accent-soft);
+  --el-tag-border-color: transparent;
+  --el-tag-text-color: var(--app-accent);
+}
+.el-link.el-link--accent,
+.el-link.is-accent {
+  --el-link-text-color: var(--app-accent);
+  --el-link-hover-text-color: var(--app-accent-hover);
+}
+
+/* ==================== 表格 ==================== */
+/* 衬线大标题已在 h1-h6 覆盖;el-table 头保持中性灰、表格行统一高度 */
+.el-table {
+  --el-table-header-bg-color: var(--color-bg-alt);
+  --el-table-header-text-color: var(--color-fg-2);
+  --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.04);
+  --el-table-border-color: var(--color-border);
+  --el-table-text-color: var(--color-fg);
+  font-family: var(--font-sans);
+}
+.el-table th.el-table__cell {
+  font-weight: var(--weight-medium);
+  font-size: var(--text-body);
+  letter-spacing: 0.02em;
+  height: 48px;
+}
+.el-table td.el-table__cell {
+  height: 52px;
+  font-size: var(--text-body);
+}
+.el-table .el-table__row {
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* ==================== Card ==================== */
+.el-card {
+  --el-card-bg-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+.el-card__header {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-serif);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-h3);
+  color: var(--color-fg);
+}
+
+/* ==================== Tabs ==================== */
+.el-tabs--card > .el-tabs__header .el-tabs__item.is-active {
+  --el-color-primary: var(--app-accent);
+  color: var(--app-accent);
+  border-bottom-color: var(--app-accent);
+}
+
+/* ==================== Form / Input ==================== */
+.el-input__wrapper {
+  background: var(--color-bg);
+  box-shadow: 0 0 0 1px var(--color-border) inset;
+  border-radius: var(--radius-sm);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--color-border-strong) inset;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--app-accent) inset;
+}
+.el-form-item__label {
+  color: var(--color-fg-2);
+  font-weight: var(--weight-medium);
+}
+
+/* ==================== Dialog / Drawer ==================== */
+.el-dialog,
+.el-drawer {
+  --el-dialog-border-radius: var(--radius-md);
+  --el-drawer-border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+}
+.el-dialog__title,
+.el-drawer__title {
+  font-family: var(--font-serif);
+  font-weight: var(--weight-semibold);
+}
+
+/* ==================== Empty ==================== */
+.el-empty__description p {
+  color: var(--color-fg-3);
+  font-size: var(--text-body);
+}
+
+/* ==================== Progress ==================== */
+.el-progress-bar__outer {
+  background-color: var(--color-bg-alt);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.el-progress-bar__inner {
+  border-radius: var(--radius-pill);
+  transition: width var(--duration-slow) var(--ease-standard);
+}
+
+/* ==================== Upload ==================== */
+.el-upload-dragger {
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-soft);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.el-upload-dragger:hover {
+  border-color: var(--app-accent);
+  background: var(--app-accent-soft);
+}
+
+/* ==================== Menu 浅色化(配合 layout 重构) ==================== */
+.el-menu {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--color-fg-2);
+  --el-menu-hover-bg-color: rgba(37, 99, 235, 0.06);
+  --el-menu-active-color: var(--app-accent);
+  --el-menu-border-color: transparent;
+  font-family: var(--font-sans);
+}
+.el-menu-item.is-active {
+  font-weight: var(--weight-medium);
+  color: var(--app-accent) !important;
+  background: var(--app-accent-soft) !important;
+}
+
+/* ==================== Dropdown ==================== */
+.el-dropdown-menu {
+  font-family: var(--font-sans);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-2);
+}
+
+/* ==================== Alert ==================== */
+.el-alert--info {
+  --el-alert-bg-color: var(--app-accent-soft);
+  --el-alert-border-color: transparent;
+  --el-alert-title-color: var(--app-accent);
+}

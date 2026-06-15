@@ -173,13 +173,17 @@ tests/
 ## 9. 已知遗留项
 
 1. **前端首次加载慢**：index chunk 1.24MB（含 Vue+ElementPlus+ECharts），可通过 `manualChunks` 进一步拆分。
-2. **地图视图移除**：v1 的 `MapView` 用了 `VITE_ENABLE_MAP` 控制，路由化后未保留，可在 `/app/map` 视图中重启用。
+2. ~~地图视图移除~~ ✅ 已补齐（`satellite-image-amap-enhance`，见 `reports/AMAP_STATUS.md`）
 3. **真实模型权重缺失**：`models/checkpoints/best.pt` 不存在时所有推理走 mock 模式；提供 `--random` 路径以走通导出链。
 4. **Colab 笔记本需手工配 GitHub URL**：Cell 3 的 `<user>/<repo>` 需替换为真实用户名和仓库名。
 5. **Grad-CAM CLI 未跑过端到端**：修复了 `sys.path`，但需真实 `best.pt` 才能验证输出图。
 
 ## 10. 后续可选方向
 
+- [x] ✅ **地图视图移除 v1 的 MapView**：已通过 `satellite-image-amap-enhance` 迭代补齐，落地为 `/app/map` 完整 6 大子能力视图
+- [x] ✅ **完整高德 Skill 适配**（`satellite-image-amap-enhance`）：卫星底图 + 分类热力图 + 类别边界多边形 + POI 搜索 + 地理/逆地理编码 + 周边搜索 + 个性化分享
+- [x] ✅ **学术白底视觉主题**（`satellite-image-amap-enhance`）：白底 + 衬线大字（`Source Serif Pro` / `Noto Serif SC`）+ 单一蓝强调 `#2563EB` + 大量留白，统一 11 个视图
+- [x] ✅ **完整动效叙事**（`satellite-image-amap-enhance`）：GSAP timeline 串联登录 / 上传 / 分类 / 热力图 / 变化检测 / 地图 6 个关键路径，`prefers-reduced-motion: reduce` 时自动禁用
 - [ ] **真实训练**：跑通 1 epoch，把 best.pt 提交到 git-lfs，切换前端为真实模式。
 - [ ] **WebGPU 推理**：在浏览器用 `@tensorflow/tfjs-backend-webgpu` 替换 CPU。
 - [ ] **PostgreSQL 切换**：生产场景用 Postgres + alembic 替代 SQLite。

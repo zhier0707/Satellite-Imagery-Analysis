@@ -45,6 +45,15 @@ export const useUploadStore = defineStore('upload', {
       this.classify = null
       this.heatmap = null
     },
+    /** 重置单图分类状态：清空图像文件、URL、分类结果与热力图 */
+    resetUpload() {
+      this.imageFile = null
+      if (this.imageUrl) URL.revokeObjectURL(this.imageUrl)
+      this.imageUrl = ''
+      this.classify = null
+      this.heatmap = null
+      this.loading = false
+    },
     setImageA(file: File) {
       this.imageA = file
       if (this.imageAUrl) URL.revokeObjectURL(this.imageAUrl)

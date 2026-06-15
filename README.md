@@ -303,9 +303,25 @@ e:/truth-视觉实践/models/checkpoints/best.pt
 
 ---
 
-## 高德地图 Skill 集成
+## 高德 Skill 集成
 
-本项目按方案文档 5.2 节集成 3 个高德 Skill：**amap-jsapi-skill**（前端地图 SDK） / **amap-lbs-skill**（后端 LBS） / **personal-map**（个人地图小程序）。
+本项目按方案文档 5.2 节集成 4 个高德 Skill：`amap-jsapi-skill`（前端地图 SDK） / `amap-lbs-skill`（后端 LBS 代理） / `personal-map`（个人地图小程序） / 综合性 LBS 服务。**地图视图**通过 AMap JSAPI 渲染卫星底图与分类结果，**POI 搜索**调用后端 `/api/lbs/place/*` 实时拉取周边兴趣点，**地理编码**通过 `/api/lbs/geocode` 把地址转经纬度并 flyTo 定位，**个性化分享**调用 `personal-map` Skill 生成分享小程序卡片。
+
+### 5 个视图入口
+
+完整业务流：**上传图像 → 分类 → 地图视图（`/app/map`）→ POI 搜索 → 生成分享卡**。
+
+| # | 入口 | 路径 | 后端接口 | 触发 Skill |
+|---|------|------|---------|-----------|
+| 1 | 图像上传 | `/app/upload` | `POST /api/classify` | EfficientNetV2-M 推理 + LBS 落库 |
+| 2 | Top-5 分类 | `/app/top5` | 共享 upload store | — |
+| 3 | **地图视图** | `/app/map` | `GET /api/records` + `GET /api/lbs/*` | **amap-jsapi-skill** + **amap-lbs-skill** |
+| 4 | POI 搜索（地图工具栏） | `/app/map` 内 | `GET /api/lbs/place/text\|around` | **amap-lbs-skill** |
+| 5 | 生成分享卡（地图右下角浮卡） | `/app/map` 内 | `POST /api/lbs/share`（仅 admin） | **personal-map** |
+
+### 接入文档
+
+> 完整 4 步接入（申请 Key / 配置 `.env` / 验证 / 排错）见 **[`docs/AMAP_GUIDE.md`](docs/AMAP_GUIDE.md)**。
 
 ### Key 配置速查
 
@@ -315,13 +331,16 @@ e:/truth-视觉实践/models/checkpoints/best.pt
 | **Web 端 安全密钥** | JSAPI v2.0 强制鉴权 | 控制台 → Key 详情 → 「安全密钥」 | `frontend/.env` → `VITE_AMAP_SECURITY_CODE` |
 | **Web 服务 Key** | 后端 LBS API（POI/地理编码/路径规划/...） | 高德控制台 → 「Web 服务」 | `backend/.env` → `AMAP_WEBSERVICE_KEY` |
 
-### 申请步骤
+### 申请步骤（精简版）
+
 1. 注册 [高德开放平台](https://lbs.amap.com) → 进入「应用管理」
 2. 创建 2 个 Key（Web 端 + Web 服务），域名白名单填 `localhost:5173`，IP 白名单填 `127.0.0.1`
 3. 在 Web 端 Key 详情页点「安全密钥」→「生成」获得 `securityJsCode`
 4. 把 3 个值分别填入 `frontend/.env` 与 `backend/.env`（真实 Key），模板见 `.env.example`
 
 > ⚠️ **安全提示**: 生产环境务必通过后端代理转发 `serviceHost`，避免 `securityJsCode` 暴露（详见 `~/.agents/skills/amap-jsapi-skill/SKILL.md` 的 `references/security.md`）。
+
+> 💡 **Mock 兜底**: 不配 Key 时后端自动返回 `backend/data/lbs_mock/*.json` 的本地 fixture，响应头 `X-LBS-Source: mock`，业务链路照常可跑通。
 
 ---
 

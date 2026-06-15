@@ -33,6 +33,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'upload', name: 'user-upload', component: () => import('@/views/user/UploadView.vue') },
       { path: 'top5', name: 'user-top5', component: () => import('@/views/user/Top5View.vue') },
       { path: 'heatmap', name: 'user-heatmap', component: () => import('@/views/user/HeatmapView.vue') },
+      { path: 'map', name: 'user-map', component: () => import('@/views/user/MapView.vue') },
       { path: 'stats', name: 'user-stats', component: () => import('@/views/user/StatsView.vue') },
       { path: 'change', name: 'user-change', component: () => import('@/views/user/ChangeView.vue') },
       { path: 'reports', name: 'user-reports', component: () => import('@/views/user/ReportsView.vue') },

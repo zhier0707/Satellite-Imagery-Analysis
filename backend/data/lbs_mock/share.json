@@ -1,0 +1,7 @@
+{
+  "url": "https://www.amap.com/share/map/mock-satellite-2025",
+  "qrcode_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+  "title": "我的卫星地图",
+  "markers": [],
+  "note": "Mock 占位分享卡。配置 AMAP_WEBSERVICE_KEY 后将通过 personal-map skill 真实生成可分享地图 URL 与二维码。"
+}

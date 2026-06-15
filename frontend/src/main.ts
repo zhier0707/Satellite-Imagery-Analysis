@@ -5,8 +5,15 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+// ==================== 主题样式 (必须在 Element Plus 之后覆盖) ====================
+import './styles/theme.scss'
+import './styles/element-overrides.scss'
 import App from './App.vue'
 import { router } from './router'
+// ==================== 全局通用 UI 组件 (供 <page-header /> 等全局标签直接使用) ====================
+import PageHeader from '@/components/ui/PageHeader.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
+import LoadingSkeleton from '@/components/ui/LoadingSkeleton.vue'
 
 // ==================== 高德安全配置 ====================
 // 必须在调用 AMapLoader.load() 之前执行,否则 JSAPI v2.0 会鉴权失败
@@ -31,4 +38,10 @@ pinia.use(piniaPluginPersistedstate)
 app.use(pinia)
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+
+// ==================== 全局注册通用 UI 组件 ====================
+app.component('PageHeader', PageHeader)
+app.component('EmptyState', EmptyState)
+app.component('LoadingSkeleton', LoadingSkeleton)
+
 app.mount('#app')

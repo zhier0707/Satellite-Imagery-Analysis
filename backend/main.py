@@ -12,8 +12,9 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.api.classify import router as classify_router
 from backend.api.stats import router as stats_router
@@ -22,9 +23,11 @@ from backend.api.records import router as records_router
 from backend.api.change import router as change_router
 from backend.api.reports import router as reports_router
 from backend.api.admin import router as admin_router
+from backend.api.lbs import router as lbs_router
 from backend.api.classify import load_model
 from backend.classes import EUROSAT_CLASSES
 from backend.db.base import Base, engine
+from backend.services.amap_client import AMapError
 
 # ==================== .env 加载 ====================
 # 轻量级 .env loader:不引入 python-dotenv 依赖
@@ -119,6 +122,14 @@ def _on_startup() -> None:
         )
 
 
+@app.on_event("shutdown")
+async def _on_shutdown() -> None:
+    """关闭钩子：释放 httpx 异步客户端连接。"""
+    from backend.services.amap_client import get_amap_client
+    await get_amap_client().aclose()
+    log.info("AMap client closed")
+
+
 @app.get("/")
 def root() -> dict:
     return {
@@ -146,6 +157,22 @@ app.include_router(records_router, prefix="/api", tags=["records"])
 app.include_router(change_router, prefix="/api", tags=["change"])
 app.include_router(reports_router, prefix="/api", tags=["reports"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+app.include_router(lbs_router, prefix="/api/lbs", tags=["lbs"])
+
+
+# ==================== 全局异常处理 ====================
+@app.exception_handler(AMapError)
+async def amap_error_handler(_request: Request, exc: AMapError) -> JSONResponse:
+    """AMapError 统一转为 502 + {code, message}。
+
+    AMapError 内部的 status 字段已带有语义（400/500/502/504），
+    但默认 502 Bad Gateway 是与"上游服务不可用"语义最贴合的码。
+    """
+    log.warning("[lbs] AMapError code=%s message=%s", exc.code, exc.message)
+    return JSONResponse(
+        status_code=exc.status,
+        content={"code": exc.code, "message": exc.message, "status": "error"},
+    )
 
 
 if __name__ == "__main__":

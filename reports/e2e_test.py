@@ -5,6 +5,9 @@
 Phase 6 扩展:
 - 注册 → 登录 → /me → 上传 classify → /records → /change 两图 → /reports/export PDF → 轮询 → 下载
 - 4xx 验证: 未登录 /api/records 应 401
+
+Phase 7 - 高德 LBS 扩展:
+- 8 段: 注册新 user → 调 LBS API（geocode / place text / place around）→ 鉴权 /share
 """
 from __future__ import annotations
 
@@ -16,6 +19,13 @@ import uuid
 from pathlib import Path
 
 import requests
+
+# PowerShell 默认 GBK,强制 reconfigure 让 ✅ ❌ 等符号能正常输出
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
 
 BASE = "http://127.0.0.1:8000"
 ROOT = Path(__file__).resolve().parent.parent
@@ -155,8 +165,176 @@ def main() -> int:
     r = requests.get(f"{BASE}/api/auth/me", headers=headers, timeout=10)
     check("登出后 /me 应 401", r.status_code == 401, f"actual={r.status_code}")
 
+    # ==================== 8. 地图视图（高德 LBS 适配）====================
+    # 独立 try/except:本段失败不污染其他段(本段是 e2e 的第 8 段,与 1-7 段解耦)
+    # 失败时统一打印 "❌ E2E 8 失败: <原因>" 后再向外抛 SystemExit(由 check() 触发)
+    # /app/map 是前端 Vite SPA 路由(端口 5173),不在后端 e2e 测试范围;
+    # 8.1 改测 "注册新 user + /api/auth/me 鉴权可达" 作为 "登录 + 后端可达" 的等价语义
+    try:
+        print("\n[PART 8] 地图视图（高德 LBS）")
+
+        # ----- 8.1 登录 + 访问 /app map -----
+        print("\n  8.1 登录 + 后端鉴权可达")
+        map_user = f"e2e_map_{uuid.uuid4().hex[:8]}"
+        map_email = f"{map_user}@example.com"
+        r = requests.post(
+            f"{BASE}/api/auth/register",
+            json={"username": map_user, "email": map_email, "password": password},
+            timeout=10,
+        )
+        check("PART8 注册新 user", r.status_code in (200, 201), f"{r.status_code} {r.text[:200]}")
+        map_access = r.json()["access_token"]
+        map_headers = {"Authorization": f"Bearer {map_access}"}
+        # /me 验证 token 有效 + 鉴权链路可达(等价于"登录 + 访问"语义)
+        r = requests.get(f"{BASE}/api/auth/me", headers=map_headers, timeout=10)
+        check("GET /api/auth/me (PART8 user)", r.status_code == 200, f"{r.status_code}")
+        check("/me username 匹配", r.json().get("username") == map_user)
+
+        # ----- 8.2 调 /api/lbs/geocode?address=故宫 -----
+        print("\n  8.2 GET /api/lbs/geocode?address=故宫")
+        r = requests.get(
+            f"{BASE}/api/lbs/geocode",
+            params={"address": "故宫"},
+            headers=map_headers,
+            timeout=10,
+        )
+        check("/geocode → 200", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        check(
+            "X-LBS-Source = mock",
+            r.headers.get("X-LBS-Source") == "mock",
+            f"actual={r.headers.get('X-LBS-Source')}",
+        )
+        body = r.json()
+        check("geocode 含 geocodes 字段", "geocodes" in body, json.dumps(body)[:200])
+        check(
+            "geocodes 长度 >= 5",
+            len(body.get("geocodes", [])) >= 5,
+            f"len={len(body.get('geocodes', []))}",
+        )
+
+        # ----- 8.3 调 /api/lbs/place/text?keywords=北京 -----
+        print("\n  8.3 GET /api/lbs/place/text?keywords=北京")
+        r = requests.get(
+            f"{BASE}/api/lbs/place/text",
+            params={"keywords": "北京"},
+            headers=map_headers,
+            timeout=10,
+        )
+        check("/place/text → 200", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        check(
+            "X-LBS-Source = mock",
+            r.headers.get("X-LBS-Source") == "mock",
+            f"actual={r.headers.get('X-LBS-Source')}",
+        )
+        body = r.json()
+        check("place/text 含 pois 字段", "pois" in body, json.dumps(body)[:200])
+        check(
+            "pois 长度 >= 5",
+            len(body.get("pois", [])) >= 5,
+            f"len={len(body.get('pois', []))}",
+        )
+
+        # ----- 8.4 调 /api/lbs/place/around -----
+        print("\n  8.4 GET /api/lbs/place/around")
+        r = requests.get(
+            f"{BASE}/api/lbs/place/around",
+            params={"lng": 116.4, "lat": 39.9, "radius": 1000, "types": "050000"},
+            headers=map_headers,
+            timeout=10,
+        )
+        check("/place/around → 200", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        check(
+            "X-LBS-Source = mock",
+            r.headers.get("X-LBS-Source") == "mock",
+            f"actual={r.headers.get('X-LBS-Source')}",
+        )
+        body = r.json()
+        check("place/around 含 pois 字段", "pois" in body, json.dumps(body)[:200])
+        check(
+            "pois 长度 >= 3",
+            len(body.get("pois", [])) >= 3,
+            f"len={len(body.get('pois', []))}",
+        )
+
+        # ----- 8.5 admin 调 /share → 200,user 调 → 403 -----
+        print("\n  8.5 admin 调 /share → 200,user 调 → 403")
+        # 8.5a 普通 user 调 /share → 403
+        r = requests.post(
+            f"{BASE}/api/lbs/share",
+            json={"title": "e2e map", "markers": []},
+            headers=map_headers,
+            timeout=10,
+        )
+        check("user POST /share → 403", r.status_code == 403, f"{r.status_code} {r.text[:200]}")
+
+        # 8.5b admin 调 /share → 200
+        # 策略:复用 PART 3 重新登录拿新 token,看 role
+        #   - role=admin (DB 干净):直接调 /share → 200
+        #   - role=user (DB 不干净):sqlite3 兜底升级 map_user 为 admin,重新登录后 200
+        r = requests.post(
+            f"{BASE}/api/auth/login",
+            json={"username": username, "password": password},
+            timeout=10,
+        )
+        check("PART3 user 重新登录", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        re_login = r.json()
+        if re_login["user"]["role"] == "admin":
+            admin_headers = {"Authorization": f"Bearer {re_login['access_token']}"}
+            print("  [INFO] PART3 user 角色为 admin(干净 DB),直接调 /share")
+        else:
+            # DB 不干净:兜底升级 map_user 为 admin
+            import sqlite3
+            db_path = ROOT / "data" / "app.db"
+            upgraded = False
+            if db_path.is_file():
+                conn = sqlite3.connect(str(db_path))
+                cur = conn.execute(
+                    "UPDATE users SET role = 'admin' WHERE username = ?",
+                    (map_user,),
+                )
+                conn.commit()
+                upgraded = cur.rowcount > 0
+                conn.close()
+            check(
+                f"sqlite3 升级 {map_user} 为 admin",
+                upgraded,
+                f"rowcount={upgraded}, db_path={db_path}",
+            )
+            r = requests.post(
+                f"{BASE}/api/auth/login",
+                json={"username": map_user, "password": password},
+                timeout=10,
+            )
+            check("升级后 admin 重新登录", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+            admin_headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+            print("  [INFO] DB 不干净,已通过 sqlite3 升级兜底")
+
+        r = requests.post(
+            f"{BASE}/api/lbs/share",
+            json={"title": "e2e map", "markers": [{"lng": 116.4, "lat": 39.9, "name": "test"}]},
+            headers=admin_headers,
+            timeout=10,
+        )
+        check("admin POST /share → 200", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        check(
+            "X-LBS-Source = mock",
+            r.headers.get("X-LBS-Source") == "mock",
+            f"actual={r.headers.get('X-LBS-Source')}",
+        )
+        body = r.json()
+        check("/share 返回 url 字段", "url" in body, json.dumps(body)[:200])
+
+        print("\n  ✅ E2E 8 (地图视图) PASSED")
+    except SystemExit as e:
+        # check() 失败时抛 SystemExit;捕获后打印友好消息再向上抛
+        print(f"\n  ❌ E2E 8 失败: {e}")
+        raise
+    except Exception as e:
+        print(f"\n  ❌ E2E 8 失败: {e}")
+        raise
+
     print("\n=============================================")
-    print("  ALL E2E TESTS PASSED (7 parts)")
+    print("  ALL E2E TESTS PASSED (8 parts)")
     print("=============================================")
     return 0
 

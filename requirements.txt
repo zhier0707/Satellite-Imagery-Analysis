@@ -31,3 +31,6 @@ email-validator>=2.0
 # onnx2tf>=1.17.0
 # tensorflow>=2.14.0
 # tensorflowjs>=4.10.0
+
+# ==================== 后端 LBS 代理（Phase 7 引入） ====================
+httpx>=0.25
