@@ -122,8 +122,8 @@ def test_imports() -> None:
     print("\n=== Test 6: 模块 import 验证 ===")
     from backend.api import change  # noqa: F401
     from backend.api.change import compute_changes, make_summary  # noqa: F401
-    from backend.api.classify import classify_pil  # noqa: F401
-    print("  ✓ backend.api.change 与 backend.api.classify.classify_pil 都能 import")
+    from backend.services.model_service import ModelService  # noqa: F401
+    print("  ✓ backend.api.change 与 backend.services.model_service.ModelService 都能 import")
 
 
 def main() -> int:

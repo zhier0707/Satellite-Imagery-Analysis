@@ -24,7 +24,8 @@ from backend.api.change import router as change_router
 from backend.api.reports import router as reports_router
 from backend.api.admin import router as admin_router
 from backend.api.lbs import router as lbs_router
-from backend.api.classify import load_model
+from backend.services.model_manager import ModelManager
+from backend.services.model_manager import load_model
 from backend.classes import EUROSAT_CLASSES
 from backend.db.base import Base, engine
 from backend.services.amap_client import AMapError

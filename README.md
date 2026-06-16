@@ -255,6 +255,7 @@ $PY scripts/convert_to_onnx.py --weights models/checkpoints/best.pt \
 | 启动前端 dev | `cd frontend; npm run dev` |
 | 构建前端 prod | `cd frontend; npm run build` |
 | 后端 E2E 验证 | `$PY reports/e2e_test.py` |
+| 真实模型回归 | `$PY tests/test_real_model_e2e.py` |
 | ONNX 导出测试 | `$PY tests/test_onnx_export.py` |
 | 训练烟测 | `$PY tests/test_train_checkpoint.py` |
 | 报表生成器测试 | `$PY tests/test_report_builders.py` |

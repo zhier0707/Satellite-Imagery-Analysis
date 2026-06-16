@@ -3,14 +3,14 @@
 ================
 
 POST /api/change
-- 接受两张图像（A / B），分别走同一条 classify_pil 流水线
+- 接受两张图像（A / B），分别走 ModelService.predict 流水线
 - 算出 label 变化列表（top1_changed / label_lost / label_gained）
 - 落库到 `change_jobs`
 - 返回结构化结果 + 自然语言 summary
 
 设计要点：
 - `compute_changes()` 和 `make_summary()` 都是纯函数，方便单元测试
-- 复用 `backend.api.classify.classify_pil`——不重复实现推理逻辑
+- 复用 backend.services.model_service.ModelService.predict——不重复实现推理逻辑
 - 同步落库：变化检测本身是即时的（不像报表），不需要异步任务
 """
 from __future__ import annotations
@@ -25,13 +25,24 @@ from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.api.classify import _save_upload_to_disk, classify_pil  # noqa: F401
 from backend.db.base import get_db
 from backend.db.models import ChangeJob, User
 from backend.security.deps import get_current_user
+from backend.services.model_manager import ModelManager
+from backend.services.model_service import ModelService
+from backend.services.storage_service import StorageService
 
 log = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ==================== 依赖注入 ====================
+def get_model_service() -> ModelService:
+    return ModelService(ModelManager())
+
+
+def get_storage_service() -> StorageService:
+    return StorageService()
 
 
 # ==================== 纯函数：变化检测算法 ====================
@@ -119,6 +130,8 @@ async def detect_change(
     image_b: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    model_service: ModelService = Depends(get_model_service),
+    storage_service: StorageService = Depends(get_storage_service),
 ) -> ChangeOut:
     """时相变化检测：A/B 两图 -> Top-5 对比 + 变化列表 + summary。"""
     try:
@@ -130,8 +143,8 @@ async def detect_change(
         raise HTTPException(status_code=400, detail=f"invalid image: {e}")
 
     # 推理（不写库，落库在最后由 change_jobs 统一写）
-    res_a = classify_pil(img_a)
-    res_b = classify_pil(img_b)
+    res_a = model_service.predict(img_a)
+    res_b = model_service.predict(img_b)
 
     top5_a, top5_b = res_a["top5"], res_b["top5"]
     top1_a, top1_b = top5_a[0], top5_b[0]
@@ -140,8 +153,8 @@ async def detect_change(
 
     # 落盘 + 落库
     try:
-        rel_a = _save_upload_to_disk(contents_a)
-        rel_b = _save_upload_to_disk(contents_b)
+        rel_a = storage_service.save_upload_file(contents_a)
+        rel_b = storage_service.save_upload_file(contents_b)
         job = ChangeJob(
             user_id=current_user.id,
             image_a_path=rel_a,
