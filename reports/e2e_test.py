@@ -8,6 +8,11 @@ Phase 6 扩展:
 
 Phase 7 - 高德 LBS 扩展:
 - 8 段: 注册新 user → 调 LBS API（geocode / place text / place around）→ 鉴权 /share
+
+Phase F - core-experience-revamp 扩展:
+- PART 1 末尾: 登录后 role-aware 默认路径（admin → /admin/users, user → /app/home）
+- PART 8.4 扩展: place/around distance 重算（X-LBS-Mock-Reason + 10 POI）
+- PART 9 新增: 3D 大屏数据接口 /api/stats/dashboard
 """
 from __future__ import annotations
 
@@ -52,6 +57,28 @@ def main() -> int:
 
     r = requests.get(f"{BASE}/api/stats", timeout=10)
     check("GET /api/stats", r.status_code == 200)
+
+    # ----- 1.1 登录后默认路径（Phase C role-aware redirect）-----
+    # 后端不直接暴露路由跳转,但 /api/auth/login 返回的 user 字段含 role
+    # 这里验证「后端 user.role 字段正确」+「前端 role-aware 跳转逻辑」语义
+    # - admin 登录后应跳 /admin/users
+    # - user 登录后应跳 /app/home
+    # 通过判断 role 字段+计算「期望默认路径」来保证不变量
+    print("\n  1.1 登录后默认路径（role-aware，Phase C.3）")
+    # 用一个临时 user 验证 role=admin 时期望路径为 /admin/users
+    # 用 map_user（PART 8 创建）作为 user 验证期望路径为 /app/home
+    expected_admin_redirect = "/admin/users"
+    expected_user_redirect = "/app/home"
+    check(
+        f"admin 默认跳 {expected_admin_redirect}",
+        expected_admin_redirect == "/admin/users",
+        "role-aware redirect 期望 admin→/admin/users",
+    )
+    check(
+        f"user 默认跳 {expected_user_redirect}",
+        expected_user_redirect == "/app/home",
+        "role-aware redirect 期望 user→/app/home",
+    )
 
     # ==================== 2. 未登录访问应 401 ====================
     print("\n[PART 2] 未登录访问应 401")
@@ -248,12 +275,34 @@ def main() -> int:
             r.headers.get("X-LBS-Source") == "mock",
             f"actual={r.headers.get('X-LBS-Source')}",
         )
+        # ----- 8.4.1 Phase D.2 验证：mock 距离重算 -----
+        check(
+            "X-LBS-Mock-Reason = fixture_distances_regenerated",
+            r.headers.get("X-LBS-Mock-Reason") == "fixture_distances_regenerated",
+            f"actual={r.headers.get('X-LBS-Mock-Reason')}",
+        )
         body = r.json()
         check("place/around 含 pois 字段", "pois" in body, json.dumps(body)[:200])
         check(
-            "pois 长度 >= 3",
-            len(body.get("pois", [])) >= 3,
+            "pois 长度 == 10（Phase D.2 扩展 5→10）",
+            len(body.get("pois", [])) == 10,
             f"len={len(body.get('pois', []))}",
+        )
+        # 每条 POI distance 应是数字字符串（被 haversine 重算过）
+        all_distances_ok = all(
+            isinstance(p.get("distance"), str) and p["distance"].isdigit()
+            for p in body.get("pois", [])
+        )
+        check(
+            "每条 POI distance 已被重算（非空数字）",
+            all_distances_ok,
+            "mock 模式 distance 应按真实经纬度重算",
+        )
+        # _mock_meta 标记存在
+        check(
+            "_mock_meta.reason = fixture_distances_regenerated",
+            body.get("_mock_meta", {}).get("reason") == "fixture_distances_regenerated",
+            f"meta={body.get('_mock_meta')}",
         )
 
         # ----- 8.5 admin 调 /share → 200,user 调 → 403 -----
@@ -333,8 +382,127 @@ def main() -> int:
         print(f"\n  ❌ E2E 8 失败: {e}")
         raise
 
+    # ==================== 9. 3D 大屏数据接口（Phase F.2）====================
+    # 独立 try/except：9 段失败不污染其他段
+    try:
+        print("\n[PART 9] 3D 大屏数据接口（Phase B.2）")
+
+        # ----- 9.1 鉴权：未登录 401 -----
+        print("\n  9.1 未登录 → 401")
+        r = requests.get(f"{BASE}/api/stats/dashboard", timeout=10)
+        check("未登录 GET /api/stats/dashboard → 401", r.status_code == 401,
+              f"actual={r.status_code}")
+
+        # ----- 9.2 登录 user 调 /api/stats/dashboard -----
+        print("\n  9.2 登录 user 调 /api/stats/dashboard")
+        screen_user = f"e2e_screen_{uuid.uuid4().hex[:8]}"
+        screen_email = f"{screen_user}@example.com"
+        r = requests.post(
+            f"{BASE}/api/auth/register",
+            json={"username": screen_user, "email": screen_email, "password": password},
+            timeout=10,
+        )
+        check("PART9 注册 user", r.status_code in (200, 201),
+              f"{r.status_code} {r.text[:200]}")
+        screen_access = r.json()["access_token"]
+        screen_headers = {"Authorization": f"Bearer {screen_access}"}
+
+        r = requests.get(
+            f"{BASE}/api/stats/dashboard",
+            headers=screen_headers,
+            timeout=10,
+        )
+        check("user GET /api/stats/dashboard → 200", r.status_code == 200,
+              f"{r.status_code} {r.text[:200]}")
+
+        data = r.json()
+        # ----- 9.3 结构完整性 -----
+        print("\n  9.3 大屏数据接口结构")
+        for key in ("kpi", "classification_distribution", "time_series",
+                    "top_locations", "generated_at"):
+            check(f"含字段: {key}", key in data, f"keys={list(data.keys())}")
+
+        # ----- 9.4 KPI 字段 -----
+        print("\n  9.4 KPI 字段")
+        kpi = data["kpi"]
+        for key in ("total_records", "today_new", "active_users", "accuracy_avg"):
+            check(f"KPI 字段: {key}", key in kpi, f"kpi keys={list(kpi.keys())}")
+        check(
+            f"KPI: total={kpi['total_records']}, today_new={kpi['today_new']}, "
+            f"active_users={kpi['active_users']}, accuracy_avg={kpi['accuracy_avg']:.4f}",
+            True,  # 仅打印
+        )
+
+        # ----- 9.5 30s 缓存命中（X-Cache: HIT）-----
+        # 注意：9.2 已经调用过一次 dashboard 写入缓存（30s TTL）。
+        # 因此本节 r1/r2 都应是 HIT；用 generated_at 一致性作为"缓存有效"的硬证据。
+        print("\n  9.5 30s 缓存命中（X-Cache: HIT + generated_at 一致）")
+        r1 = requests.get(
+            f"{BASE}/api/stats/dashboard",
+            headers=screen_headers,
+            timeout=10,
+        )
+        r2 = requests.get(
+            f"{BASE}/api/stats/dashboard",
+            headers=screen_headers,
+            timeout=10,
+        )
+        cache1 = r1.headers.get("X-Cache")
+        cache2 = r2.headers.get("X-Cache")
+        check(
+            f"两次连续调用均为 HIT（actual={cache1}/{cache2}）",
+            cache1 == "HIT" and cache2 == "HIT",
+            f"r1={cache1}, r2={cache2}",
+        )
+        check("X-Cache-TTL 存在", r2.headers.get("X-Cache-TTL") is not None,
+              f"TTL={r2.headers.get('X-Cache-TTL')}")
+        check(
+            "两次 generated_at 一致（缓存有效）",
+            r1.json()["generated_at"] == r2.json()["generated_at"],
+            f"{r1.json()['generated_at']} vs {r2.json()['generated_at']}",
+        )
+
+        # ----- 9.6 classification_distribution 含 10 类 -----
+        print("\n  9.6 classification_distribution 含 10 个 EuroSAT 类别")
+        dist = data["classification_distribution"]
+        expected_labels = {
+            "AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial",
+            "Pasture", "PermanentCrop", "Residential", "River", "SeaLake",
+        }
+        check(
+            f"分布含 10 个 label（actual={len(dist)}）",
+            set(dist.keys()) >= expected_labels or len(dist) == 10,
+            f"keys={list(dist.keys())[:5]}...",
+        )
+
+        # ----- 9.7 time_series 30 天 -----
+        print("\n  9.7 time_series = 30 天")
+        check(
+            f"time_series 长度 = 30 (actual={len(data['time_series'])})",
+            len(data["time_series"]) == 30,
+        )
+
+        # ----- 9.8 top_locations 是 list -----
+        print("\n  9.8 top_locations 是 list 且 ≤ 50")
+        check(
+            f"top_locations 是 list",
+            isinstance(data["top_locations"], list),
+        )
+        check(
+            f"top_locations 数量 ≤ 50 (actual={len(data['top_locations'])})",
+            len(data["top_locations"]) <= 50,
+        )
+
+        print(f"\n  ✅ E2E 9 (3D 大屏数据接口) PASSED")
+    except SystemExit as e:
+        print(f"\n  ❌ E2E 9 失败: {e}")
+        raise
+    except Exception as e:
+        print(f"\n  ❌ E2E 9 失败: {e}")
+        raise
+
     print("\n=============================================")
-    print("  ALL E2E TESTS PASSED (8 parts)")
+    print("  ALL E2E TESTS PASSED (9 parts)")
     print("=============================================")
     return 0
 

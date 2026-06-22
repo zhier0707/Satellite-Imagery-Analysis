@@ -1,8 +1,8 @@
 # 高德 LBS 后端适配 - 状态报告
 
-> change-id: `satellite-image-amap-enhance`
-> 报告时间: 2026-06-15
-> 范围: Task 30 / 40.1 / 40.2 / 41.3（仅后端 + 后端测试）
+> change-id: `satellite-image-amap-enhance` + `core-experience-revamp`
+> 报告时间: 2026-06-16
+> 范围: Task 30 / 40.1 / 40.2 / 41.3（amap-enhance） + Phase A-F（core-experience-revamp，含后端相关）
 
 ---
 
@@ -204,3 +204,83 @@ python -m backend.main
 - 错误不再"特殊"，统一在 `AMapError` + exception handler 层被消化
 
 `good taste`：6 个 endpoint 的"鉴权 + mock/live 切换 + header 标记"流程完全同构，没有 if/else 分散到各端点。
+
+---
+
+## 8. Phase A-F 改动摘要（core-experience-revamp）
+
+> 范围：核心体验重塑的 6 个 Phase，按价值优先级重排（价值主张 → 3D 大屏 → 架构修复 → Bug 群 → UI 细节 → 测试与文档）。
+> 本节仅列出**与 LBS / 后端相关**的关键改动；前端部分详见 `docs/SCREEN_GUIDE.md` + `README.md` 同步段落。
+
+### 8.1 Phase A - 价值主张
+
+- `frontend/src/views/user/HomeView.vue` 新增：Hero + 5 张特性卡片
+- `frontend/src/router/index.ts`：`/app` 默认重定向 `/app/upload` → `/app/home`
+- `frontend/src/views/LoginView.vue` 左侧副标题 + 4 个数字徽章强化品牌
+
+### 8.2 Phase B - 3D 大屏（核心新增）
+
+- **后端 `GET /api/stats/dashboard` 聚合接口**（`backend/api/stats.py`）
+  - 返回 `kpi` / `classification_distribution` / `time_series` / `top_locations` / `generated_at`
+  - 30 秒进程内缓存（按 `role × user_id` 分 key），响应头 `X-Cache: HIT/MISS` + `X-Cache-TTL`
+  - admin 角色全平台统计，user 角色仅自己
+  - 失败优雅降级到空数据 + 200，绝不暴露 5xx
+  - 新增 `backend/schemas/stats.py` Pydantic 模型（`DashboardStats` / `Kpi` / `TimeSeriesPoint` / `LocationPoint`）
+- 前端 `BigScreenView.vue`（Three.js 地球 + 4 KPI + 2 ECharts + AMap 缩略图 + 全屏 + F/R/Esc 快捷键）
+
+### 8.3 Phase C - 架构入口修复
+
+- `AppLayout.vue` 用户下拉菜单新增「进入管理控制台」（admin 可见）
+- `AdminLayout.vue` 顶部「回到用户端」改为 `el-link` 风格
+- 路由跳转 `role-aware redirect`：admin 登录后跳 `/admin/users`，user 跳 `/app/home`
+
+### 8.4 Phase D - Bug 群修复
+
+- **D.1 HeatmapView 真正可交互**：`backend/api/classify.py` `heatmap` 端点新增 `target_class` 范围校验（0..9），非法值返回 400
+- **D.2 MapView 周边搜索可视化**：
+  - `backend/services/amap_client.py` mock 模式按真实经纬度用 Haversine 公式重算 `distance` 字段
+  - `backend/data/lbs_mock/place_around.json` 扩充到 10 条 POI（餐饮 3 / 购物 2 / 医疗 1 / 生活 2 / 交通 2）
+  - `backend/api/lbs.py` `place/around` 端点在 mock 模式下额外设置响应头 `X-LBS-Mock-Reason: fixture_distances_regenerated`
+- **D.3 MapView 状态三态**：`LoadingSkeleton` + `popoverTriggerValue='manual'` + `try/catch` + EmptyState CTA
+
+### 8.5 Phase E - UI 细节
+
+- `frontend/src/styles/theme.scss` 新增 `--color-success/warning/danger` + 大屏 token（5 个 `--color-screen-*`）
+- 路由切换 `fade` → `fade-slide`
+- `EmptyState.vue` 新增 `variant: 'default' | 'success' | 'warning' | 'error' | 'info'`
+
+### 8.6 Phase F - 测试与文档
+
+- `tests/test_dashboard_stats.py`（新建）：KPI 计算正确性 + admin/user 数据隔离 + 30s 缓存命中
+- `tests/test_place_around_mock.py`（新建）：haversine 基础 + 10 POI + mock 距离重算 + X-LBS-Mock-Reason 头
+- `tests/test_heatmap_target_class.py`（新建）：0..9 合法值通过 + 越界值（-1/10/100）→ 400
+- `reports/e2e_test.py`：
+  - **PART 1 末尾**：登录后 role-aware 默认路径（admin → `/admin/users`，user → `/app/home`）
+  - **PART 8.4 扩展**：周边搜索 `distance` 重算验证（10 POI + `_mock_meta`）
+  - **PART 9 新增**：3D 大屏数据接口（鉴权 + 结构 + KPI + 30s 缓存 + 10 类 + 30 天趋势 + top_locations）
+- `README.md`：新增「项目价值主张」「快速开始」「3D 数据驾驶舱」三段
+- `docs/SCREEN_GUIDE.md`（新建）：3D 大屏使用指南
+
+### 8.7 关键文件路径速查
+
+| 路径 | 用途 |
+|------|------|
+| `backend/api/stats.py` | 大屏聚合接口 + 30s 缓存 |
+| `backend/schemas/stats.py` | DashboardStats / Kpi / TimeSeriesPoint / LocationPoint |
+| `backend/api/classify.py` | heatmap 端点 + target_class 范围校验 |
+| `backend/services/amap_client.py` | mock 距离重算（haversine）+ _mock_meta |
+| `backend/api/lbs.py` | X-LBS-Mock-Reason 响应头 |
+| `backend/data/lbs_mock/place_around.json` | 10 条 POI fixture |
+| `tests/test_dashboard_stats.py` | 大屏接口单测 |
+| `tests/test_place_around_mock.py` | mock 距离重算单测 |
+| `tests/test_heatmap_target_class.py` | target_class 范围校验单测 |
+| `reports/e2e_test.py` | 9 段 E2E 联调 |
+| `docs/SCREEN_GUIDE.md` | 3D 大屏使用文档 |
+
+---
+
+## 9. 后续路线图（来自 `core-experience-revamp/spec.md`）
+
+- 短期：本 spec 范围已涵盖全部 5+1 个用户问题
+- 中期：i18n 中英切换 / 17 类扩展 / EfficientNetV2-L 对比 / 公开 API / 管理端 Dashboard / GitHub Actions CI
+- 长期：WebSocket 实时推送 / 3D 城市白模 / GEE 卫星影像接入 / 多模型 ensemble / 行业 SaaS / 商业化

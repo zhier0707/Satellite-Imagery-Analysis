@@ -224,7 +224,12 @@ def download_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """下载完成的报表。status 必须 completed 且 output_path 存在。"""
+    """下载完成的报表。status 必须 completed 且 output_path 存在。
+
+    路径解析兼容绝对路径与相对路径：
+    - 绝对路径：直接使用（跨机器迁移 / 运维手工调整时常见）
+    - 相对路径：相对 DATA_DIR 父目录解析（默认行为，避开 Windows 绝对路径中文问题）
+    """
     r: Optional[ExportJob] = (
         db.query(ExportJob)
         .filter(ExportJob.id == report_id, ExportJob.user_id == current_user.id)
@@ -237,10 +242,18 @@ def download_report(
     if not r.output_path:
         raise HTTPException(status_code=500, detail="output_path missing on completed job")
 
-    # output_path 是相对 DATA_DIR 父目录存的（避开 Windows 绝对路径中文问题）
-    abs_path = Path(DATA_DIR) / r.output_path
+    # 路径解析：绝对路径直接用；相对路径相对 DATA_DIR 父目录
+    output_path = r.output_path
+    if Path(output_path).is_absolute():
+        abs_path = Path(output_path)
+    else:
+        abs_path = Path(DATA_DIR) / output_path
+
     if not abs_path.is_file():
-        log.error("[report] job %s output_path 文件不存在: %s", report_id, abs_path)
+        log.error(
+            "[report] job %s output_path 文件不存在 | output_path=%s | abs_path=%s",
+            report_id, output_path, abs_path,
+        )
         raise HTTPException(status_code=410, detail="output file gone")
 
     media_type = {

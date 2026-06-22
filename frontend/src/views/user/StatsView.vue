@@ -14,7 +14,7 @@ import { PieChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { gsap } from 'gsap'
-import { getStats } from '@/api'
+import { getStats, getDashboardStats } from '@/api'
 import { useCountUp } from '@/composables/useCountUp'
 import { usePageEnter } from '@/composables/usePageEnter'
 
@@ -36,9 +36,32 @@ usePageEnter(sectionRef)
 
 const chartEl = ref<HTMLDivElement>()
 const chart = shallowRef<echarts.ECharts | null>(null)
-const summary = ref({ total: 0, window: '7d' })
+/**
+ * summary:
+ *   - total      用于触发 EmptyState 的关键字段
+ *   - window     展示文案,如 "7d" / "本机"
+ *   - kpi        大屏 KPI(总记录/今日新增/活跃用户/平均置信度)
+ *   - distribution 后端分类分布(Record<string, number>)
+ */
+const summary = ref<{
+  total: number
+  window: string
+  kpi: { total_records: number; today_new: number; active_users: number; accuracy_avg: number } | null
+  distribution: Record<string, number> | null
+}>({
+  total: 0,
+  window: '7d',
+  kpi: null,
+  distribution: null,
+})
 const totalTarget = ref(0)
 const totalDisplay = useCountUp(totalTarget, 0.6)
+
+/** time_series 全为 0 判定:用于 EmptyState 收窄触发 */
+function isTimeSeriesAllZero(ts: Array<{ count: number }> | undefined | null): boolean {
+  if (!ts || ts.length === 0) return true
+  return ts.every((p) => !p.count)
+}
 
 let timer: number | null = null
 
@@ -46,7 +69,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 }
 
-const render = () => {
+const render = async () => {
   if (!chartEl.value || !chart.value) return
   const counts: Record<string, number> = {}
   for (const c of EUROSAT_CLASSES) counts[c] = 0
@@ -58,22 +81,60 @@ const render = () => {
       localTotal += v as number
     }
   } catch {}
+
+  // 主数据源: 大屏聚合(getDashboardStats → 数据库真实数据)
+  // in-memory(getStats)仅作辅助
+  let dashboardTotal = 0
+  let dashboardKpi: typeof summary.value.kpi = null
+  let dashboardDistribution: Record<string, number> = {}
+  let timeSeriesAllZero = true
+  let dashboardOk = false
+  try {
+    const d = await getDashboardStats()
+    dashboardOk = true
+    dashboardKpi = d.kpi
+    dashboardDistribution = d.classification_distribution ?? {}
+    dashboardTotal = d.kpi?.total_records ?? 0
+    timeSeriesAllZero = isTimeSeriesAllZero(d.time_series)
+    for (const [k, v] of Object.entries(dashboardDistribution)) {
+      counts[k] = (counts[k] ?? 0) + v
+    }
+  } catch {
+    // 大屏接口失败,继续尝试 in-memory
+  }
+
+  // 辅助: in-memory getStats(进程级环形缓冲)
   getStats()
     .then((s) => {
       for (const [k, v] of Object.entries(s.counts)) counts[k] = (counts[k] ?? 0) + v
-      const nextTotal = s.total + localTotal
-      summary.value = { total: nextTotal, window: `${s.window_hours / 24}d` }
-      totalTarget.value = nextTotal
-      update(counts)
+      // 决策:大屏接口正常时优先用大屏;否则退回 in-memory
+      const finalTotal = dashboardOk ? dashboardTotal + localTotal : s.total + localTotal
+      const windowLabel = dashboardOk ? 'DB' : `${s.window_hours / 24}d`
+      summary.value = {
+        total: finalTotal,
+        window: windowLabel,
+        kpi: dashboardKpi,
+        distribution: dashboardOk ? dashboardDistribution : null,
+      }
+      totalTarget.value = finalTotal
+      update(counts, finalTotal === 0 && timeSeriesAllZero)
     })
     .catch(() => {
-      summary.value = { total: localTotal, window: '本机' }
-      totalTarget.value = localTotal
-      update(counts)
+      const finalTotal = dashboardTotal + localTotal
+      summary.value = {
+        total: finalTotal,
+        window: dashboardOk ? 'DB' : '本机',
+        kpi: dashboardKpi,
+        distribution: dashboardOk ? dashboardDistribution : null,
+      }
+      totalTarget.value = finalTotal
+      update(counts, finalTotal === 0 && timeSeriesAllZero)
     })
 }
 
-const update = (counts: Record<string, number>) => {
+const update = (counts: Record<string, number>, _isEmpty = false) => {
+  // 空态条件由模板根据 summary.total 决定;此处仅负责更新图表
+  void _isEmpty
   const data = Object.entries(counts)
     .filter(([, v]) => v > 0)
     .map(([k, v], i) => ({ name: k, value: v, itemStyle: { color: THEME_PALETTE[i % THEME_PALETTE.length] } }))

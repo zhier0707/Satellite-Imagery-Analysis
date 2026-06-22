@@ -39,6 +39,18 @@
   --color-success: #16A34A;
   --color-warning: #D97706;
 
+  /* ===== Phase B: 通用语义色 + 3D 大屏深色调色板 ===== */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger:  #EF4444;
+  --color-info:    #3B82F6;
+
+  --color-screen-bg:      #0A0E1A;
+  --color-screen-accent:  #00E5FF;
+  --color-screen-success: #10F2C5;
+  --color-screen-text:    #E0E6F0;
+  --color-screen-muted:   #6B7280;
+
   /* ===== 字体 ===== */
   --font-serif: 'Source Serif Pro', 'Noto Serif SC', Georgia, 'Times New Roman', serif;
   --font-sans: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', sans-serif;

@@ -5,6 +5,8 @@
 .codegraph/
 .trae/
 skills-lock.json
+# Project screenshot / design reference folder (not part of source)
+/web端系统图像/
 
 # ============================================================
 # Root-level transient logs (CI/dev runs)
@@ -14,6 +16,13 @@ skills-lock.json
 /pip.log
 /data/uvicorn.err
 /data/uvicorn.out
+/uvicorn.log
+/pytest_full.log
+/pytest_*.log
+/backend/uvicorn.log
+/frontend/npm_install.log
+/frontend/vite.log
+/frontend/*.log
 
 # ============================================================
 # Python
@@ -90,6 +99,9 @@ backend/reports/output/
 *.pdf
 *.xlsx
 *.csv
+# Binary design docs (.md 同行保留)
+/*.docx
+/*.doc
 
 # ============================================================
 # Frontend

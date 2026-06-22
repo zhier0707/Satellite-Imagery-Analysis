@@ -7,10 +7,14 @@
  *   - 顶部 64px 水平导航 (5 个一级菜单)
  *   - 左侧 240px 二级标签
  *   - 白底 32/24px 主区
+ *
+ * Phase C:
+ *   - 顶部「回到用户端」由 el-button 降级为 el-link,避免与 5 个主菜单抢视觉权重
  */
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -40,6 +44,9 @@ const activeMenu = computed<AdminMenu | null>(() => {
 })
 
 const handleSelect = (idx: string) => router.push(idx)
+
+/** Phase C: 回到用户端默认页 */
+const goToUser = () => router.push('/app')
 
 const handleLogout = async () => {
   try { await ElMessageBox.confirm('确定退出？', '提示', { type: 'warning' }) } catch { return }
@@ -72,7 +79,10 @@ const handleLogout = async () => {
         </el-menu>
       </div>
       <div class="topbar-right">
-        <el-button text @click="router.push('/app')">← 回到用户端</el-button>
+        <!-- Phase C: 视觉降级为 el-link,不再与主菜单抢权重 -->
+        <el-link :icon="ArrowLeft" :underline="false" class="back-to-user" @click="goToUser">
+          回到用户端
+        </el-link>
         <el-dropdown>
           <span class="user-info">
             <el-icon><UserFilled /></el-icon>
@@ -109,9 +119,9 @@ const handleLogout = async () => {
       </el-aside>
 
       <el-main class="main">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
+        <router-view v-slot="{ Component, route }">
+          <transition name="fade-slide" mode="out-in">
+            <component :is="Component" :key="route.path" />
           </transition>
         </router-view>
       </el-main>
@@ -161,6 +171,19 @@ const handleLogout = async () => {
   margin: 0 2px;
 }
 .topbar-right { display: flex; align-items: center; gap: var(--space-1); }
+/* Phase C: 回到用户端 - 次要动作,文字链视觉权重 */
+.back-to-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: var(--space-2);
+  font-size: var(--text-small);
+  color: var(--color-fg-3);
+  font-family: var(--font-sans);
+}
+.back-to-user:hover {
+  color: var(--color-accent);
+}
 .user-info {
   display: inline-flex;
   align-items: center;
@@ -211,8 +234,38 @@ const handleLogout = async () => {
   overflow-y: auto;
 }
 
-.fade-enter-active, .fade-leave-active { transition: opacity var(--duration-base) var(--ease-standard); }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+/* ==================== Phase E.1: 路由切换 + 菜单 hover ==================== */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-16px);
+}
+:deep(.el-menu-item) {
+  position: relative;
+  transition: color 0.2s;
+}
+:deep(.el-menu-item::after) {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--color-accent, #2563EB);
+  transition: all 0.2s ease;
+  transform: translateX(-50%);
+}
+:deep(.el-menu-item:hover::after),
+:deep(.el-menu-item.is-active::after) {
+  width: 80%;
+}
 
 @media (max-width: 900px) {
   .topbar-menu { display: none; }

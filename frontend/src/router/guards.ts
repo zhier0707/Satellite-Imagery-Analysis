@@ -2,7 +2,7 @@
  * 路由守卫：实现三件事
  * 1. 未登录访问受保护路由 -> 跳 /login（带 redirect）
  * 2. user 访问 /admin -> 跳 /app + toast
- * 3. 已登录访问 /login -> 跳 /app
+ * 3. 已登录访问 /login -> 跳 角色对应 defaultRoute / 角色匹配的 queryRedirect
  */
 import { Router, RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -17,7 +17,12 @@ export function installGuards(router: Router) {
     // 1. 公开路由无需鉴权
     if (to.meta.public) {
       if (to.name === 'login' && auth.isAuthenticated) {
-        return { path: auth.isAdmin ? '/admin' : '/app' }
+        // Phase C: 角色感知跳转 - admin 自动回管理端,user 回用户端
+        const redirectQuery = to.query.redirect
+        const target = auth.postLoginRedirect(
+          typeof redirectQuery === 'string' ? redirectQuery : undefined,
+        )
+        return { path: target }
       }
       return true
     }

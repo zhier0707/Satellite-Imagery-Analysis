@@ -13,7 +13,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Download, Refresh, Delete, Plus } from '@element-plus/icons-vue'
 import { gsap } from 'gsap'
 import { useReportsStore } from '@/stores/reports'
-import { reportDownloadUrl } from '@/api'
+import { downloadReportBlob } from '@/api'
 import type { ReportKind } from '@/api'
 import { usePageEnter } from '@/composables/usePageEnter'
 
@@ -115,6 +115,37 @@ const onDelete = async (id: number) => {
 
 const onRefresh = async (id: number) => reports.refreshOne(id)
 
+/** 正在下载的报表 id 集合,用于行内 loading 反馈 */
+const downloadingIds = ref<Set<number>>(new Set())
+
+/**
+ * 报表下载(带鉴权):
+ * 浏览器 <a href> 不会附加 Authorization 头,直接打开 /api/reports/{id}/download 会 401。
+ * 这里走 axios(http 实例)下载为 Blob,再触发 <a download> 浏览器下载。
+ */
+async function onDownload(id: number, kind: ReportKind) {
+  if (downloadingIds.value.has(id)) return
+  downloadingIds.value.add(id)
+  try {
+    const blob = await downloadReportBlob(id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `report-${id}.${kind}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    // 延迟释放,确保浏览器已开始下载流程
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    ElMessage.success('下载已开始')
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || String(e)
+    ElMessage.error('下载失败:' + msg)
+  } finally {
+    downloadingIds.value.delete(id)
+  }
+}
+
 watch(() => reports.items.length, () => { /* 触发 row 渲染收集 */ })
 
 /** 全表高亮: 新增 row 时整张表淡蓝一下,简单可观察 */
@@ -208,8 +239,9 @@ onUnmounted(stopPolling)
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'completed'" size="small" class="is-accent"
-              tag="a" :href="reportDownloadUrl(row.id)" target="_blank"
+              :loading="downloadingIds.has(row.id)"
               :icon="Download"
+              @click="onDownload(row.id, row.kind)"
             >下载</el-button>
             <el-button size="small" @click="onRefresh(row.id)" :icon="Refresh">刷新</el-button>
             <el-button size="small" type="danger" @click="onDelete(row.id)" :icon="Delete">删除</el-button>

@@ -104,6 +104,11 @@ async def place_around(
     client = get_amap_client()
     data, source = await client.place_around(lng=lng, lat=lat, radius=radius, types=types)
     response.headers["X-LBS-Source"] = source
+    # mock 模式且 fixture 距离被重算 → 加 X-LBS-Mock-Reason 头方便 E2E 验证
+    if source == "mock":
+        mock_meta = data.get("_mock_meta") or {}
+        if mock_meta.get("reason"):
+            response.headers["X-LBS-Mock-Reason"] = str(mock_meta["reason"])
     return data
 
 

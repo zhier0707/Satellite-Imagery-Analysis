@@ -96,13 +96,16 @@ class TestMockMode:
 
     @pytest.mark.asyncio
     async def test_place_around_returns_fixture(self, mock_client: AMapClient) -> None:
+        """周边搜索 fixture 应 ≥ 5 条 POI（fix-critical-bugs Phase A.4 扩展到 10 条）。"""
         data, source = await mock_client.place_around(116.397, 39.909, radius=1000)
         assert source == "mock"
-        assert len(data["pois"]) == 5
+        assert len(data["pois"]) >= 5, f"fixture POI 应 ≥ 5 条，实际 {len(data['pois'])}"
         # 校验 distance 字段为字符串数字
         for p in data["pois"]:
             assert p["distance"].isdigit()
-        print(f"\n  ✓ mock place_around: {len(data['pois'])} 条周边")
+        # 校验 _mock_meta 标记（Phase A.4 新增：fixture_distances_regenerated）
+        assert data.get("_mock_meta", {}).get("reason") == "fixture_distances_regenerated"
+        print(f"\n  ✓ mock place_around: {len(data['pois'])} 条周边 (含 _mock_meta)")
 
     @pytest.mark.asyncio
     async def test_static_map_returns_fixture(self, mock_client: AMapClient) -> None:
@@ -178,8 +181,14 @@ class TestLiveMode:
         print(f"\n  ✓ live geocode: source={source}, addr={data['geocodes'][0]['formatted_address']}")
 
     @pytest.mark.asyncio
-    async def test_live_business_error_raises_amaperror(self, live_client: AMapClient) -> None:
-        """真实模式：业务层 status=0 → 抛 AMapError。"""
+    async def test_live_business_error_falls_back_to_mock(self, live_client: AMapClient) -> None:
+        """真实模式：业务层 status=0 → 降级到 mock（fix-critical-bugs Phase A.4 新行为）。
+
+        新行为契约：
+        - 未配 Key：直接走 mock
+        - 配 Key + live 成功：返回 (data, "live")
+        - 配 Key + live 失败：返回 (mock_data, "mock")，data._mock_meta 含 fallback 信息
+        """
 
         def _handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={
@@ -189,16 +198,17 @@ class TestLiveMode:
         live_client._client = httpx.AsyncClient(
             transport=httpx.MockTransport(_handler), timeout=3.0,
         )
-        with pytest.raises(AMapError) as exc_info:
-            await live_client.geocode("test")
-        assert exc_info.value.code == "10001"
-        assert exc_info.value.status == 502
+        data, source = await live_client.geocode("test")
+        assert source == "mock", f"live 失败应降级到 mock，实际 {source}"
+        meta = data.get("_mock_meta", {})
+        assert meta.get("fallback_from") == "live_error"
+        assert meta.get("fallback_error_code") == "10001"
         await live_client._client.aclose()
-        print(f"\n  ✓ live 业务错误: code={exc_info.value.code}, status={exc_info.value.status}")
+        print(f"\n  ✓ live 业务错误降级: source={source}, fallback_code={meta.get('fallback_error_code')}")
 
     @pytest.mark.asyncio
-    async def test_live_network_error_raises_502(self, live_client: AMapClient) -> None:
-        """真实模式：网络连接错误（非超时）→ AMapError status=502。"""
+    async def test_live_network_error_falls_back_to_mock(self, live_client: AMapClient) -> None:
+        """真实模式：网络异常 → 降级到 mock。"""
 
         def _handler(_request: httpx.Request) -> httpx.Response:
             # ConnectError 是 HTTPError 子类，会走 AMAP_NETWORK_ERROR 路径
@@ -207,16 +217,16 @@ class TestLiveMode:
         live_client._client = httpx.AsyncClient(
             transport=httpx.MockTransport(_handler), timeout=3.0,
         )
-        with pytest.raises(AMapError) as exc_info:
-            await live_client.geocode("test")
-        assert exc_info.value.code == "AMAP_NETWORK_ERROR"
-        assert exc_info.value.status == 502
+        data, source = await live_client.geocode("test")
+        assert source == "mock", f"网络异常应降级到 mock，实际 {source}"
+        meta = data.get("_mock_meta", {})
+        assert meta.get("fallback_error_code") == "AMAP_NETWORK_ERROR"
         await live_client._client.aclose()
-        print(f"\n  ✓ live 网络异常: code={exc_info.value.code}")
+        print(f"\n  ✓ live 网络异常降级: source={source}, fallback_code={meta.get('fallback_error_code')}")
 
     @pytest.mark.asyncio
-    async def test_live_timeout_raises_504(self, live_client: AMapClient) -> None:
-        """真实模式：连接超时 → AMapError status=504（语义更准确）。"""
+    async def test_live_timeout_falls_back_to_mock(self, live_client: AMapClient) -> None:
+        """真实模式：连接超时 → 降级到 mock（语义：用户感知的 API 永远可用）。"""
 
         def _handler(_request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectTimeout("simulated timeout")
@@ -224,12 +234,12 @@ class TestLiveMode:
         live_client._client = httpx.AsyncClient(
             transport=httpx.MockTransport(_handler), timeout=3.0,
         )
-        with pytest.raises(AMapError) as exc_info:
-            await live_client.geocode("test")
-        assert exc_info.value.code == "AMAP_TIMEOUT"
-        assert exc_info.value.status == 504
+        data, source = await live_client.geocode("test")
+        assert source == "mock", f"超时应降级到 mock，实际 {source}"
+        meta = data.get("_mock_meta", {})
+        assert meta.get("fallback_error_code") == "AMAP_TIMEOUT"
         await live_client._client.aclose()
-        print(f"\n  ✓ live 超时: code={exc_info.value.code}, status={exc_info.value.status}")
+        print(f"\n  ✓ live 超时降级: source={source}, fallback_code={meta.get('fallback_error_code')}")
 
 
 # ==================== Scenario 3: 鉴权（用 FastAPI TestClient）====================

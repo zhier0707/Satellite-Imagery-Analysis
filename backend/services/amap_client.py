@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -175,27 +176,65 @@ class AMapClient:
             )
         return data, SOURCE_LIVE
 
+    async def _request_with_fallback(
+        self,
+        endpoint: str,
+        params: dict[str, Any],
+        fixture_key: str,
+        postprocess: Callable[[dict], dict] | None = None,
+    ) -> tuple[dict, str]:
+        """统一请求（带降级）：已配 Key 时先 live，失败回退到 mock。
+
+        行为
+        ----
+        - 未配 Key：直接走 mock（不附加 fallback 标记）
+        - 配 Key 且 live 成功：返回 (data, "live")
+        - 配 Key 且 live 失败（任意 AMapError）：返回 (mock_data, "mock")，
+          在 data._mock_meta 上追加 fallback_from / fallback_error_code / fallback_error_message
+        """
+        if not self.is_configured:
+            log.debug("AMAP_WEBSERVICE_KEY 未配置，使用 mock fixture: %s", fixture_key)
+            data = self._load_fixture(fixture_key)
+            if postprocess is not None:
+                data = postprocess(data)
+            return data, SOURCE_MOCK
+
+        try:
+            return await self._request(endpoint, params, fixture_key)
+        except AMapError as e:
+            log.warning("AMAP live 失败，降级到 mock [%s]: %s", fixture_key, e)
+            data = self._load_fixture(fixture_key)
+            if postprocess is not None:
+                data = postprocess(data)
+            # 标记降级（保留 postprocess 已设置的 _mock_meta 字段，如 distance 公式等）
+            meta = dict(data.get("_mock_meta") or {})
+            meta["fallback_from"] = "live_error"
+            meta["fallback_error_code"] = e.code
+            meta["fallback_error_message"] = e.message
+            data["_mock_meta"] = meta
+            return data, SOURCE_MOCK
+
     # ==================== 6 个业务方法 ====================
     async def geocode(self, address: str) -> tuple[dict, str]:
-        """正向地理编码：地址 → 经纬度。"""
+        """正向地理编码：地址 → 经纬度。配 Key 但 live 失败时自动降级到 mock。"""
         address = (address or "").strip()
         if not address:
             raise AMapError(status=400, code="INVALID_PARAM", message="address 不能为空")
-        return await self._request(
+        return await self._request_with_fallback(
             "geocode/geo",
             {"address": address},
             _FIXTURE_KEYS["geocode"],
         )
 
     async def regeocode(self, lng: float, lat: float) -> tuple[dict, str]:
-        """逆地理编码：经纬度 → 地址。"""
+        """逆地理编码：经纬度 → 地址。配 Key 但 live 失败时自动降级到 mock。"""
         try:
             lng_f, lat_f = float(lng), float(lat)
         except (TypeError, ValueError):
             raise AMapError(status=400, code="INVALID_PARAM", message="lng/lat 必须为数字")
         if not (-180 <= lng_f <= 180) or not (-90 <= lat_f <= 90):
             raise AMapError(status=400, code="INVALID_PARAM", message="lng/lat 超出合法范围")
-        return await self._request(
+        return await self._request_with_fallback(
             "geocode/regeo",
             {"location": f"{lng_f},{lat_f}", "extensions": "base"},
             _FIXTURE_KEYS["regeocode"],
@@ -207,7 +246,7 @@ class AMapClient:
         city: str | None = None,
         offset: int = 20,
     ) -> tuple[dict, str]:
-        """POI 关键字搜索。"""
+        """POI 关键字搜索。配 Key 但 live 失败时自动降级到 mock。"""
         keywords = (keywords or "").strip()
         if not keywords:
             raise AMapError(status=400, code="INVALID_PARAM", message="keywords 不能为空")
@@ -215,7 +254,7 @@ class AMapClient:
         params: dict[str, Any] = {"keywords": keywords, "offset": str(offset), "page": "1"}
         if city:
             params["city"] = city.strip()
-        return await self._request(
+        return await self._request_with_fallback(
             "place/text",
             params,
             _FIXTURE_KEYS["place_text"],
@@ -228,7 +267,7 @@ class AMapClient:
         radius: int = 1000,
         types: str | None = None,
     ) -> tuple[dict, str]:
-        """周边搜索。"""
+        """周边搜索。配 Key 但 live 失败时自动降级到 mock，并按真实经纬度重算 distance。"""
         try:
             lng_f, lat_f = float(lng), float(lat)
         except (TypeError, ValueError):
@@ -242,10 +281,11 @@ class AMapClient:
         }
         if types:
             params["types"] = types.strip()
-        return await self._request(
+        return await self._request_with_fallback(
             "place/around",
             params,
             _FIXTURE_KEYS["place_around"],
+            postprocess=lambda data: _regenerate_place_around_distances(data, lng_f, lat_f),
         )
 
     async def static_map(
@@ -299,6 +339,77 @@ def _placeholder_qrcode() -> str:
     return (
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     )
+
+
+# ==================== 工具: haversine 距离 + mock distance 重算 ====================
+def _haversine_m(lng1: float, lat1: float, lng2: float, lat2: float) -> float:
+    """两点间球面距离(米);Phase D.2 用它按用户传入的 (lng,lat) 重算 fixture 距离。
+
+    公式
+    ----
+    a = sin²(Δφ/2) + cos(φ1)·cos(φ2)·sin²(Δλ/2)
+    c = 2·atan2(√a, √(1−a))
+    d = R·c
+    """
+    r = 6371000.0  # 地球平均半径(米)
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    c = 2 * math.asin(min(1.0, math.sqrt(a)))
+    return r * c
+
+
+def _parse_lng_lat(location: str) -> tuple[float, float] | None:
+    """解析 POI 的 'lng,lat' 字符串;解析失败返回 None。"""
+    try:
+        parts = [p.strip() for p in (location or "").split(",")]
+        if len(parts) != 2:
+            return None
+        return float(parts[0]), float(parts[1])
+    except (ValueError, AttributeError):
+        return None
+
+
+def _regenerate_place_around_distances(
+    data: dict,
+    center_lng: float,
+    center_lat: float,
+) -> dict:
+    """对 mock 周边搜索结果按真实经纬度重算 distance 字段(米,取整)。
+
+    行为
+    ----
+    - 输入 data 是 fixture 加载的 dict(含 pois 列表)
+    - 对每条 POI:用其 location 与 center 计算 haversine 距离
+    - 解析失败/缺字段:distance 留空字符串(不抛错)
+    - 按距离升序排;同时更新 count 字段
+    - 在 data 顶层塞 ``_mock_meta`` 标记,供测试断言
+    """
+    pois = data.get("pois") or []
+    enriched: list[dict] = []
+    for poi in pois:
+        loc = poi.get("location")
+        parsed = _parse_lng_lat(loc) if isinstance(loc, str) else None
+        item = dict(poi)
+        if parsed is None:
+            item["distance"] = ""
+        else:
+            d_m = _haversine_m(center_lng, center_lat, parsed[0], parsed[1])
+            item["distance"] = str(int(round(d_m)))
+        enriched.append(item)
+    enriched.sort(
+        key=lambda x: int(x["distance"]) if x.get("distance", "").isdigit() else 1 << 30,
+    )
+    new_data = dict(data)
+    new_data["pois"] = enriched
+    new_data["count"] = str(len(enriched))
+    new_data["_mock_meta"] = {
+        "reason": "fixture_distances_regenerated",
+        "center": [center_lng, center_lat],
+        "distance_formula": "haversine",
+    }
+    return new_data
 
 
 # ==================== 单例 ====================

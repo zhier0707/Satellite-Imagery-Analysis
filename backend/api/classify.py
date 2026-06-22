@@ -27,6 +27,24 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
 from sqlalchemy.orm import Session
 
+# ==================== numpy 顶部导入（防 anyio portal 跨线程重导入）====================
+# Windows 上 numpy 的 native extension 不允许在子线程中重导入（cannot load module
+# more than once per process）。把 import numpy 提到模块顶部，让它在 pytest / 进程
+# 启动时一次性加载到 sys.modules，子线程 endpoint 调用复用即可。
+try:
+    import numpy as np  # noqa: F401
+except ImportError:  # 极端环境无 numpy 时降级为 None，endpoint 内再用 __import__ 兜底
+    np = None  # type: ignore[assignment]
+
+# ==================== cv2 顶部导入（Grad-CAM 与 mock 热力图均依赖）====================
+# opencv-python / opencv-python-headless 任意一个即可；都没有时 mock 分支降级到 PIL
+try:
+    import cv2  # noqa: F401
+    CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None  # type: ignore[assignment]
+    CV2_AVAILABLE = False
+
 from backend.db.base import get_db
 from backend.db.models import User
 from backend.security.deps import get_current_user
@@ -102,27 +120,46 @@ async def heatmap(
     model_service: ModelService = Depends(get_model_service),
 ):
     """Grad-CAM 热力图接口。"""
+    # 目标类别范围校验：EuroSAT 10 类 → 索引 0..9
+    if not (0 <= target_class < 10):
+        raise HTTPException(
+            status_code=400,
+            detail="target_class must be in 0..9",
+        )
     try:
         contents = await image.read()
         img = Image.open(io.BytesIO(contents)).convert("RGB")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"invalid image: {e}")
 
-    # 模型未加载 -> mock 全黑热力图（保持与原行为一致）
-    if not model_service.is_model_loaded:
-        import numpy as np
+    # 模型未加载 OR cv2 不可用 -> mock 热力图（保持与原行为一致）
+    if not model_service.is_model_loaded or not CV2_AVAILABLE:
+        # 直接用模块顶部已加载的 np，避免 anyio portal 子线程重导入
+        # （Windows native extension 不能「load module more than once per process」）
+        if np is None:
+            import numpy as np_local  # 兜底：极少数无 numpy 环境
+            _np = np_local
+        else:
+            _np = np
 
-        h, w = np.array(img).shape[:2]
-        mock = np.zeros((h, w, 3), dtype="uint8")
-        _, buf = __import__("cv2").imencode(".png", mock)
+        h, w = _np.array(img).shape[:2]
+        if CV2_AVAILABLE:
+            # 有 cv2：沿用 numpy + cv2.imencode 旧路径
+            mock = _np.zeros((h, w, 3), dtype="uint8")
+            _, buf = cv2.imencode(".png", mock)
+            png_bytes = buf.tobytes()
+        else:
+            # cv2 不可用：PIL 生成深灰图 (40,40,40) 并编码为 PNG，避免 ImportError 500
+            mock_img = Image.new("RGB", (h, w), (40, 40, 40))
+            buf = io.BytesIO()
+            mock_img.save(buf, format="PNG")
+            png_bytes = buf.getvalue()
         return {
-            "png_base64": base64.b64encode(buf.tobytes()).decode(),
+            "png_base64": base64.b64encode(png_bytes).decode(),
             "mock": True,
         }
 
     try:
-        import cv2
-        import numpy as np
         from src.gradcam import generate_gradcam, get_target_layer, overlay_heatmap
     except ImportError:
         raise HTTPException(status_code=501, detail="Grad-CAM not available in this env")

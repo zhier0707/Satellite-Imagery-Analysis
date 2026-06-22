@@ -29,7 +29,9 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/AppLayout.vue'),
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/app/upload' },
+      { path: '', redirect: '/app/home' },
+      { path: 'home', name: 'user-home', component: () => import('@/views/user/HomeView.vue'), meta: { title: '首页', requiresAuth: true } },
+      { path: 'screen', name: 'user-screen', component: () => import('@/views/user/BigScreenView.vue'), meta: { title: '3D 大屏', requiresAuth: true } },
       { path: 'upload', name: 'user-upload', component: () => import('@/views/user/UploadView.vue') },
       { path: 'top5', name: 'user-top5', component: () => import('@/views/user/Top5View.vue') },
       { path: 'heatmap', name: 'user-heatmap', component: () => import('@/views/user/HeatmapView.vue') },

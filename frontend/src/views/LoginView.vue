@@ -55,6 +55,14 @@ const regRules = {
 const loginFormRef = ref()
 const regFormRef = ref()
 
+/**
+ * 从 query 中安全取出 redirect 字符串（避免 LocationQueryValue 类型噪音）
+ * Phase C 残留: 与 postLoginRedirect 配套使用
+ */
+function extractRedirect(q: unknown): string | undefined {
+  return typeof q === 'string' ? q : undefined
+}
+
 async function doLogin() {
   if (!loginFormRef.value) return
   await loginFormRef.value.validate(async (valid: boolean) => {
@@ -63,8 +71,9 @@ async function doLogin() {
     try {
       await auth.login(loginForm.username, loginForm.password)
       ElMessage.success('登录成功')
-      const redirect = (route.query.redirect as string) || (auth.isAdmin ? '/admin' : '/app')
-      router.replace(redirect)
+      // Phase C: 角色感知跳转（admin → /admin/users，user → /app/home；带 redirect 时按角色校验）
+      const target = auth.postLoginRedirect(extractRedirect(route.query.redirect))
+      router.replace(target)
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.detail || '登录失败')
     } finally {
@@ -81,8 +90,8 @@ async function doRegister() {
     try {
       await auth.register(regForm.username, regForm.email, regForm.password)
       ElMessage.success('注册成功，已自动登录')
-      const redirect = (route.query.redirect as string) || (auth.isAdmin ? '/admin' : '/app')
-      router.replace(redirect)
+      const target = auth.postLoginRedirect(extractRedirect(route.query.redirect))
+      router.replace(target)
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.detail || '注册失败')
     } finally {
@@ -132,9 +141,26 @@ onMounted(() => {
         <p class="kicker">SATELLITE · REMOTE SENSING</p>
         <h1 class="display">洞察地表<br />每一帧变化</h1>
         <p class="lede">
-          基于 EfficientNetV2-M 与 EuroSAT 数据集的十类土地利用分类、Grad-CAM
-          可解释性分析与时相变化检测。
+          EfficientNetV2-M · EuroSAT · 10 类 · 时相对比 · 高德可视化
         </p>
+        <div class="stat-grid">
+          <div class="stat-item">
+            <span class="stat-value">53.2M</span>
+            <span class="stat-unit">参数</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">10</span>
+            <span class="stat-unit">类别</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">30ms</span>
+            <span class="stat-unit">推理</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">27k</span>
+            <span class="stat-unit">数据集</span>
+          </div>
+        </div>
         <p class="hint">首个注册账号自动获得管理员权限。</p>
       </div>
     </aside>
@@ -243,6 +269,43 @@ onMounted(() => {
   font-size: 15px;
   line-height: var(--line-loose);
   max-width: 420px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.stat-grid {
+  margin-top: var(--space-3);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+  max-width: 480px;
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+.stat-item:hover {
+  border-color: var(--color-accent);
+}
+.stat-value {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.stat-unit {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-fg-3);
+  margin-top: 2px;
+  letter-spacing: 0.05em;
 }
 .hint {
   margin: var(--space-3) 0 0 0;

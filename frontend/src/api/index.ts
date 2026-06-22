@@ -215,6 +215,18 @@ export function reportDownloadUrl(id: number): string {
   return `/api/reports/${id}/download`
 }
 
+/**
+ * 通过 http 实例下载报表二进制(自动走拦截器,带 Authorization 头)。
+ * 失败时抛出 axios 错误供上层捕获展示。
+ * 成功时返回 Blob,由调用方结合 URL.createObjectURL 触发浏览器下载。
+ */
+export async function downloadReportBlob(id: number): Promise<Blob> {
+  const r = await http.get<Blob>(`/reports/${id}/download`, {
+    responseType: 'blob',
+  })
+  return r.data
+}
+
 // ---- Admin: Users ----
 export async function adminListUsers(): Promise<UserOut[]> {
   const r = await http.get<UserOut[]>('/admin/users')
@@ -263,6 +275,48 @@ export async function adminStartConvert(payload: {
   weights: string; output?: string; image_size?: number; opset?: number
 }): Promise<TrainingJob> {
   const r = await http.post<TrainingJob>('/admin/converts/start', payload)
+  return r.data
+}
+
+// ==================== Phase B: 3D 大屏聚合数据 ====================
+/**
+ * 大屏 KPI 4 字段
+ * - total_records  累计记录数（admin 看全平台，user 仅自己）
+ * - today_new      今日新增
+ * - active_users   近 7 天活跃用户数
+ * - accuracy_avg   平均 top1 置信度（0-1，保留 4 位小数）
+ */
+export interface DashboardKpi {
+  total_records: number
+  today_new: number
+  active_users: number
+  accuracy_avg: number
+}
+
+/** 时间序列单日点（最近 30 天） */
+export interface DashboardTimePoint {
+  date: string
+  count: number
+}
+
+/** Top 分类点（后端当前不含 lng/lat，仅 id/label/score） */
+export interface DashboardLocation {
+  id: number
+  label: string
+  score: number
+}
+
+/** GET /api/stats/dashboard 完整响应 */
+export interface DashboardStats {
+  kpi: DashboardKpi
+  classification_distribution: Record<string, number>
+  time_series: DashboardTimePoint[]
+  top_locations: DashboardLocation[]
+  generated_at: string
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const r = await http.get<DashboardStats>('/stats/dashboard')
   return r.data
 }
 
